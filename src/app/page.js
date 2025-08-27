@@ -15,6 +15,19 @@ const LegalAIHomepage = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Smooth scroll function
+  const scrollToSection = (e, sectionId) => {
+    e.preventDefault();
+    const element = document.getElementById(sectionId);
+    if (element) {
+      element.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+        inline: 'nearest'
+      });
+    }
+  };
+
   const features = [
     {
       icon: <FileText className="w-8 h-8" />,
@@ -60,9 +73,20 @@ const LegalAIHomepage = () => {
               </span>
             </div>
             <div className="hidden md:flex items-center space-x-8">
-              <a href="#features" className="text-gray-600 hover:text-blue-600 transition-colors">Features</a>
-              <a href="#how-it-works" className="text-gray-600 hover:text-blue-600 transition-colors">How It Works</a>
-              {/* <a href="#pricing" className="text-gray-600 hover:text-blue-600 transition-colors">Pricing</a> */}
+              <a 
+                href="#features" 
+                onClick={(e) => scrollToSection(e, 'features')}
+                className="text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
+              >
+                Features
+              </a>
+              <a 
+                href="#how-it-works" 
+                onClick={(e) => scrollToSection(e, 'how-it-works')}
+                className="text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
+              >
+                How It Works
+              </a>
               <a href='/docupload' className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-2 rounded-full hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5">
                 Get Started
               </a>
@@ -144,7 +168,7 @@ const LegalAIHomepage = () => {
       </section>
 
       {/* Features Section */}
-      <section id="features" className="py-20 bg-white/50 backdrop-blur-sm">
+      <section id="features" className="py-20 bg-white/50 backdrop-blur-sm scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">
@@ -182,7 +206,7 @@ const LegalAIHomepage = () => {
       </section>
 
       {/* How It Works */}
-      <section id="how-it-works" className="py-20 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
+      <section id="how-it-works" className="py-20 bg-gradient-to-r from-blue-600 to-indigo-600 text-white scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold mb-4">How LegalClear Works</h2>
@@ -221,25 +245,6 @@ const LegalAIHomepage = () => {
         </div>
       </section>
 
-      {/* Stats Section
-      <section className="py-16 bg-white">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="grid md:grid-cols-4 gap-8 text-center">
-            {[
-              { number: "50K+", label: "Contracts Analyzed" },
-              { number: "95%", label: "Risk Detection Rate" },
-              { number: "10min", label: "Average Analysis Time" },
-              { number: "4.9/5", label: "User Rating" }
-            ].map((stat, index) => (
-              <div key={index} className="p-6">
-                <div className="text-4xl font-bold text-blue-600 mb-2">{stat.number}</div>
-                <div className="text-gray-600 font-medium">{stat.label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section> */}
-
       {/* CTA Section */}
       <section className="py-20 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
         <div className="max-w-4xl mx-auto text-center px-4">
@@ -260,7 +265,7 @@ const LegalAIHomepage = () => {
       </section>
 
       {/* Footer */}
-<Footer/>
+      <Footer/>
     </div>
   );
 };

@@ -1,6 +1,9 @@
+
 "use client"
 import React, { useState, useEffect } from 'react';
-import { CheckCircle, AlertCircle, Shield, ArrowLeft, FileText, Users, Clock, Download, MessageCircle } from 'lucide-react';
+import ReactFlow, { Background, Controls, MiniMap } from 'reactflow';
+import 'reactflow/dist/style.css';
+import { CheckCircle, AlertCircle, Shield, ArrowLeft, FileText, Users, Clock, Download, MessageCircle, HelpCircle, Tag } from 'lucide-react';
 
 const AnalysisResultsPage = () => {
   const [analysisResults, setAnalysisResults] = useState(null);
@@ -8,6 +11,18 @@ const AnalysisResultsPage = () => {
   const [questionInput, setQuestionInput] = useState('');
   const [isLoadingQuestion, setIsLoadingQuestion] = useState(false);
   const [qnaHistory, setQnaHistory] = useState([]);
+  const [isFullscreenFlow, setIsFullscreenFlow] = useState(false);
+
+  const getNodeStyle = (nodeType) => {
+    const styles = {
+      start: { background: '#10B981', color: 'white', borderRadius: '8px' },
+      party: { background: '#3B82F6', color: 'white', borderRadius: '8px' },
+      process: { background: '#F3F4F6', color: '#1F2937', border: '2px solid #6B7280' },
+      decision: { background: '#FEF3C7', color: '#92400E', border: '2px solid #F59E0B' },
+      end: { background: '#EF4444', color: 'white', borderRadius: '8px' }
+    };
+    return styles[nodeType] || styles.process;
+  };
 
   useEffect(() => {
     // Load results from session storage
@@ -41,6 +56,20 @@ const AnalysisResultsPage = () => {
     }
   };
 
+  const getCategoryColor = (category) => {
+    const colors = {
+      'Payment': 'bg-blue-100 text-blue-800',
+      'Termination': 'bg-red-100 text-red-800',
+      'Liability': 'bg-yellow-100 text-yellow-800',
+      'Obligations': 'bg-green-100 text-green-800',
+      'General': 'bg-gray-100 text-gray-800',
+      'Performance': 'bg-purple-100 text-purple-800',
+      'Intellectual Property': 'bg-indigo-100 text-indigo-800',
+      'Confidentiality': 'bg-pink-100 text-pink-800'
+    };
+    return colors[category] || 'bg-gray-100 text-gray-800';
+  };
+
   const handleQuestionSubmit = async () => {
     if (!questionInput.trim()) return;
 
@@ -64,7 +93,8 @@ const AnalysisResultsPage = () => {
         setQnaHistory([...qnaHistory, {
           question: questionInput,
           answer: result.answer,
-          timestamp: new Date().toLocaleTimeString()
+          timestamp: new Date().toLocaleTimeString(),
+          source: 'user'
         }]);
         setQuestionInput('');
       } else {
@@ -76,6 +106,17 @@ const AnalysisResultsPage = () => {
     } finally {
       setIsLoadingQuestion(false);
     }
+  };
+
+  const handleSuggestedQuestion = (suggestedQA) => {
+    // Add suggested Q&A to history
+    setQnaHistory([...qnaHistory, {
+      question: suggestedQA.question,
+      answer: suggestedQA.answer,
+      timestamp: new Date().toLocaleTimeString(),
+      source: 'suggested',
+      category: suggestedQA.category
+    }]);
   };
 
   if (!analysisResults) {
@@ -159,7 +200,8 @@ const AnalysisResultsPage = () => {
               { id: 'summary', label: 'Summary', icon: FileText },
               { id: 'risks', label: 'Risk Assessment', icon: AlertCircle },
               { id: 'terms', label: 'Key Terms', icon: CheckCircle },
-              { id: 'qna', label: 'Q&A', icon: MessageCircle }
+              { id: 'qna', label: 'Q&A', icon: MessageCircle },
+              { id: 'flowchart', label: 'Contract Flow', icon: FileText }
             ].map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -348,6 +390,40 @@ const AnalysisResultsPage = () => {
               </>
             )}
 
+{/* Flowchart Section */}
+{activeSection === 'flowchart' && !isFullscreenFlow && (
+  <div className="bg-white rounded-xl shadow-lg p-6">
+    <div className="flex justify-between items-center mb-6">
+      <h2 className="text-2xl font-bold text-gray-900">Contract Flow Visualization</h2>
+      {analysis.flowchartData && (
+        <button
+          onClick={() => setIsFullscreenFlow(true)}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          View Fullscreen
+        </button>
+      )}
+    </div>
+    
+    {analysis.flowchartData ? (
+      <div className="h-64 border border-gray-200 rounded-lg bg-gray-50 flex items-center justify-center">
+        <button
+          onClick={() => setIsFullscreenFlow(true)}
+          className="text-blue-600 hover:text-blue-700 text-center"
+        >
+          <FileText className="w-12 h-12 mx-auto mb-2" />
+          <p>Click to view interactive flowchart</p>
+        </button>
+      </div>
+    ) : (
+      <div className="text-center py-8">
+        <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+        <p className="text-lg text-gray-600">No flowchart data available</p>
+      </div>
+    )}
+  </div>
+)}
+
             {/* Q&A Section */}
             {activeSection === 'qna' && (
               <>
@@ -356,14 +432,14 @@ const AnalysisResultsPage = () => {
                   
                   {/* Question Input */}
                   <div className="mb-6">
-                    <div className="flex gap-3 text-black">
+                    <div className="flex gap-3">
                       <input
                         type="text"
                         value={questionInput}
                         onChange={(e) => setQuestionInput(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && handleQuestionSubmit()}
                         placeholder="Ask about payment terms, termination clauses, liability, etc."
-                        className="flex-1 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="flex-1 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                         disabled={isLoadingQuestion}
                       />
                       <button
@@ -380,15 +456,70 @@ const AnalysisResultsPage = () => {
                     </div>
                   </div>
 
+                  {/* Suggested Questions */}
+                  {analysis.suggestedQuestions && analysis.suggestedQuestions.length > 0 && qnaHistory.length === 0 && (
+                    <div className="mb-8">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                        <HelpCircle className="w-5 h-5 mr-2" />
+                        Suggested Questions
+                      </h3>
+                      <div className="grid gap-3">
+                        {analysis.suggestedQuestions.map((qa, index) => (
+                          <button
+                            key={index}
+                            onClick={() => handleSuggestedQuestion(qa)}
+                            className="text-left p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all group"
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <p className="font-medium text-gray-900 group-hover:text-blue-700">{qa.question}</p>
+                                <p className="text-sm text-gray-600 mt-1">{qa.answer.slice(0, 100)}...</p>
+                              </div>
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ml-3 ${getCategoryColor(qa.category)}`}>
+                                {qa.category}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Q&A History */}
                   {qnaHistory.length > 0 && (
                     <div className="space-y-4">
-                      <h3 className="text-lg font-semibold text-gray-900">Previous Questions</h3>
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold text-gray-900">Questions & Answers</h3>
+                        {analysis.suggestedQuestions && analysis.suggestedQuestions.length > 0 && (
+                          <button
+                            onClick={() => setQnaHistory([])}
+                            className="text-sm text-blue-600 hover:text-blue-700"
+                          >
+                            Show Suggested Questions
+                          </button>
+                        )}
+                      </div>
                       {qnaHistory.map((qa, index) => (
                         <div key={index} className="border border-gray-200 rounded-lg p-4">
                           <div className="bg-blue-50 p-3 rounded-lg mb-3">
-                            <p className="font-medium text-blue-900">Q: {qa.question}</p>
-                            <p className="text-xs text-blue-600 mt-1">{qa.timestamp}</p>
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <p className="font-medium text-blue-900">Q: {qa.question}</p>
+                                <p className="text-xs text-blue-600 mt-1">{qa.timestamp}</p>
+                              </div>
+                              {qa.category && (
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(qa.category)}`}>
+                                  {qa.category}
+                                </span>
+                              )}
+                              {qa.source && (
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ml-2 ${
+                                  qa.source === 'suggested' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {qa.source === 'suggested' ? 'Suggested' : 'Custom'}
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <div className="bg-gray-50 p-3 rounded-lg">
                             <p className="text-gray-800">{qa.answer}</p>
@@ -398,7 +529,7 @@ const AnalysisResultsPage = () => {
                     </div>
                   )}
 
-                  {qnaHistory.length === 0 && (
+                  {qnaHistory.length === 0 && (!analysis.suggestedQuestions || analysis.suggestedQuestions.length === 0) && (
                     <div className="text-center py-8">
                       <MessageCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                       <p className="text-lg text-gray-600 mb-2">No questions asked yet</p>
@@ -461,22 +592,64 @@ const AnalysisResultsPage = () => {
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Word Count</span>
-                  <span className="font-semibold text-black">{analysis.summary?.wordCount?.toLocaleString() || 'N/A'}</span>
+                  <span className="font-semibold text-gray-900">{analysis.summary?.wordCount?.toLocaleString() || 'N/A'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Risks Found</span>
-                  <span className="font-semibold text-black">{analysis.riskAssessment?.risks?.length || 0}</span>
+                  <span className="font-semibold text-gray-900">{analysis.riskAssessment?.risks?.length || 0}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Vague Terms</span>
-                  <span className="font-semibold text-black">{analysis.vagueTerms?.length || 0}</span>
+                  <span className="font-semibold text-gray-900">{analysis.vagueTerms?.length || 0}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Key Terms</span>
-                  <span className="font-semibold text-black">{analysis.keyTerms?.length || 0}</span>
+                  <span className="font-semibold text-gray-900">{analysis.keyTerms?.length || 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Suggested Q&As</span>
+                  <span className="font-semibold text-gray-900">{analysis.suggestedQuestions?.length || 0}</span>
                 </div>
               </div>
             </div>
+
+            {/* Quick Access to Suggested Questions in Sidebar */}
+            {analysis.suggestedQuestions && analysis.suggestedQuestions.length > 0 && activeSection !== 'qna' && (
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
+                  <HelpCircle className="w-5 h-5 mr-2" />
+                  Quick Questions
+                </h3>
+                <div className="space-y-2">
+                  {analysis.suggestedQuestions.slice(0, 3).map((qa, index) => (
+                    <button
+                      key={index}
+                      onClick={() => {
+                        setActiveSection('qna');
+                        setTimeout(() => handleSuggestedQuestion(qa), 100);
+                      }}
+                      className="w-full text-left p-3 text-sm bg-gray-50 hover:bg-blue-50 rounded-lg transition-colors"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-medium text-gray-900">{qa.question}</span>
+                        <Tag className="w-3 h-3 text-gray-400" />
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${getCategoryColor(qa.category)}`}>
+                        {qa.category}
+                      </span>
+                    </button>
+                  ))}
+                  {analysis.suggestedQuestions.length > 3 && (
+                    <button
+                      onClick={() => setActiveSection('qna')}
+                      className="w-full text-center p-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
+                    >
+                      View all {analysis.suggestedQuestions.length} questions →
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Parties Information */}
             {(metadata.parties?.party1 || metadata.parties?.party2) && (
@@ -522,6 +695,50 @@ const AnalysisResultsPage = () => {
             </div>
           </div>
         </div>
+               {/* Fullscreen Flowchart */}
+               {isFullscreenFlow && (
+          <div className="fixed inset-0 bg-white z-50 flex flex-col">
+            {/* Fullscreen Header */}
+            <div className="bg-white border-b border-gray-200 px-6 py-4">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-gray-900">
+                  {analysis.flowchartData?.title || 'Contract Flow Visualization'}
+                </h2>
+                <button
+                  onClick={() => setIsFullscreenFlow(false)}
+                  className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors flex items-center"
+                >
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Back to Analysis
+                </button>
+              </div>
+            </div>
+            
+            {/* Fullscreen Flowchart */}
+            <div className="flex-1 bg-gray-50">
+              {analysis.flowchartData ? (
+                <ReactFlow
+                  nodes={analysis.flowchartData.nodes.map(node => ({
+                    ...node,
+                    data: { label: node.label, description: node.description },
+                    style: getNodeStyle(node.type)
+                  }))}
+                  edges={analysis.flowchartData.edges}
+                  fitView
+                  attributionPosition="bottom-left"
+                >
+                  <Background />
+                  <Controls />
+                  <MiniMap />
+                </ReactFlow>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-gray-500">No flowchart data available</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
