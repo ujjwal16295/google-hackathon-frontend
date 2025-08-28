@@ -143,7 +143,7 @@ const DocumentUploadPage = () => {
       // Add parties information
       formData.append('parties', JSON.stringify(parties));
 
-      const response = await fetch('http://localhost:3001/api/analyze-document', {
+      const response = await fetch('https://googel-hackathon-backend.onrender.com/api/analyze-document', {
         method: 'POST',
         body: formData,
       });

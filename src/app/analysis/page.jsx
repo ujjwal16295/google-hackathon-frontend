@@ -75,7 +75,7 @@ const AnalysisResultsPage = () => {
 
     setIsLoadingQuestion(true);
     try {
-      const response = await fetch('http://localhost:3001/api/ask-question', {
+      const response = await fetch('https://googel-hackathon-backend.onrender.com/api/ask-question', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
