@@ -100,6 +100,7 @@ const [showQAPopup, setShowQAPopup] = useState(false);
           question: currentQuestion,
           analysisId: analysisResults?.analysis?.metadata?.analysisId,
           context: analysisResults?.analysis,
+          originalText: analysisResults?.originalText,
           conversationHistory: conversationContext // Send conversation history for context
         }),
       });

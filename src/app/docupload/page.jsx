@@ -131,12 +131,16 @@ const DocumentUploadPage = () => {
     
     const progressInterval = simulateAnalysisProgress();
 
+    let documentText = '';
+
+
     try {
       const formData = new FormData();
       
       if (activeTab === 'upload' && uploadedFile) {
         formData.append('document', uploadedFile);
       } else if (activeTab === 'text' && textInput.trim()) {
+        documentText = textInput.trim();  // Store text input
         formData.append('text', textInput.trim());
       }
       
@@ -167,7 +171,8 @@ const DocumentUploadPage = () => {
           metadata: {
             ...result.metadata,
             parties: parties
-          }
+          },
+          originalText: documentText  // ADD THIS LINE - store original contract text
         }));
         
         // Small delay to show completion, then redirect
