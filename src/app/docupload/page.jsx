@@ -434,7 +434,7 @@ const DocumentUploadPage = () => {
                     value={parties.party1}
                     onChange={(e) => setParties({...parties, party1: e.target.value})}
                     placeholder="Enter party name"
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full p-3 border border-gray-300 text-black rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
                 <div>
@@ -446,7 +446,7 @@ const DocumentUploadPage = () => {
                     value={parties.party2}
                     onChange={(e) => setParties({...parties, party2: e.target.value})}
                     placeholder="Enter party name"
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full p-3 border border-gray-300 text-black rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
               </div>
@@ -516,7 +516,7 @@ const DocumentUploadPage = () => {
         </div>
 
         {/* Help Section */}
-        <div className="mt-12 grid md:grid-cols-3 gap-6">
+        <div className="mt-12 grid md:grid-cols-2 gap-6">
           <div className="bg-white p-6 rounded-xl shadow-md">
             <h3 className="font-semibold text-gray-900 mb-2">Supported Formats</h3>
             <p className="text-gray-600 text-sm">PDF, DOC, DOCX, and TXT files up to 10MB</p>
@@ -525,12 +525,12 @@ const DocumentUploadPage = () => {
             <h3 className="font-semibold text-gray-900 mb-2">Processing Time</h3>
             <p className="text-gray-600 text-sm">Most documents analyzed within 60 seconds</p>
           </div>
-          <div className="bg-white p-6 rounded-xl shadow-md">
+          {/* <div className="bg-white p-6 rounded-xl shadow-md">
             <h3 className="font-semibold text-gray-900 mb-2">Need Help?</h3>
             <p className="text-gray-600 text-sm">
               <a href="#" className="text-blue-600 hover:text-blue-800">Contact support</a> for assistance
             </p>
-          </div>
+          </div> */}
         </div>
       </div>
     </div>

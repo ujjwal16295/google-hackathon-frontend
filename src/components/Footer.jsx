@@ -15,13 +15,13 @@ export const Footer = () => {
         <span className="text-xl font-bold">LegalClear</span>
       </div>
       
-      <div className="flex space-x-6 mb-4 md:mb-0">
+      {/* <div className="flex space-x-6 mb-4 md:mb-0">
         <a href="#" className="text-gray-400 hover:text-white transition-colors">Privacy</a>
         <a href="#" className="text-gray-400 hover:text-white transition-colors">Terms</a>
         <a href="#" className="text-gray-400 hover:text-white transition-colors">Contact</a>
         <a href="#" className="text-gray-400 hover:text-white transition-colors">Support</a>
       </div>
-      
+       */}
       <p className="text-gray-400 text-sm">
         &copy; 2025 LegalClear. All rights reserved.
       </p>

@@ -12,6 +12,9 @@ const AnalysisResultsPage = () => {
   const [isLoadingQuestion, setIsLoadingQuestion] = useState(false);
   const [qnaHistory, setQnaHistory] = useState([]);
   const [isFullscreenFlow, setIsFullscreenFlow] = useState(false);
+  // Add this new state near your other useState declarations
+const [conversationContext, setConversationContext] = useState([]);
+const [showQAPopup, setShowQAPopup] = useState(false);
 
   const getNodeStyle = (nodeType) => {
     const styles = {
@@ -72,8 +75,21 @@ const AnalysisResultsPage = () => {
 
   const handleQuestionSubmit = async () => {
     if (!questionInput.trim()) return;
-
+  
+    // Add user question to history immediately for UI feedback
+    const userQuestion = {
+      role: 'user',
+      content: questionInput,
+      timestamp: new Date().toLocaleTimeString()
+    };
+    
+    setConversationContext(prev => [...prev, userQuestion]);
+    setShowQAPopup(true);
+    
+    const currentQuestion = questionInput;
+    setQuestionInput('');
     setIsLoadingQuestion(true);
+  
     try {
       const response = await fetch('https://googel-hackathon-backend.onrender.com/api/ask-question', {
         method: 'POST',
@@ -81,35 +97,55 @@ const AnalysisResultsPage = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          question: questionInput,
+          question: currentQuestion,
           analysisId: analysisResults?.analysis?.metadata?.analysisId,
-          context: analysisResults?.analysis
+          context: analysisResults?.analysis,
+          conversationHistory: conversationContext // Send conversation history for context
         }),
       });
-
+  
       const result = await response.json();
       
       if (result.success) {
-        setQnaHistory([...qnaHistory, {
-          question: questionInput,
+        // Add AI response to conversation context
+        const aiResponse = {
+          role: 'assistant',
+          content: result.answer,
+          timestamp: new Date().toLocaleTimeString()
+        };
+        
+        setConversationContext(prev => [...prev, aiResponse]);
+        
+        // Also add to main Q&A history
+        setQnaHistory(prev => [...prev, {
+          question: currentQuestion,
           answer: result.answer,
           timestamp: new Date().toLocaleTimeString(),
           source: 'user'
         }]);
-        setQuestionInput('');
       } else {
         alert('Failed to get answer: ' + result.error);
+        // Remove the user question if request failed
+        setConversationContext(prev => prev.slice(0, -1));
       }
     } catch (error) {
       console.error('Error asking question:', error);
       alert('Error processing question. Please try again.');
+      // Remove the user question if request failed
+      setConversationContext(prev => prev.slice(0, -1));
     } finally {
       setIsLoadingQuestion(false);
     }
   };
 
   const handleSuggestedQuestion = (suggestedQA) => {
-    // Add suggested Q&A to history
+    // Add to conversation context
+    setConversationContext([
+      { role: 'user', content: suggestedQA.question, timestamp: new Date().toLocaleTimeString() },
+      { role: 'assistant', content: suggestedQA.answer, timestamp: new Date().toLocaleTimeString() }
+    ]);
+    
+    // Add suggested Q&A to main history
     setQnaHistory([...qnaHistory, {
       question: suggestedQA.question,
       answer: suggestedQA.answer,
@@ -117,6 +153,8 @@ const AnalysisResultsPage = () => {
       source: 'suggested',
       category: suggestedQA.category
     }]);
+    
+    setShowQAPopup(true);
   };
 
   if (!analysisResults) {
@@ -131,7 +169,96 @@ const AnalysisResultsPage = () => {
   }
 
   const { analysis, metadata } = analysisResults;
+// Q&A Popup Component
+const QAPopup = () => (
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col">
+      {/* Popup Header */}
+      <div className="border-b border-gray-200 px-6 py-4 flex justify-between items-center">
+        <h3 className="text-xl font-bold text-gray-900">Contract Q&A</h3>
+        <button
+          onClick={() => {
+            setShowQAPopup(false);
+            setConversationContext([]);
+          }}
+          className="text-gray-400 hover:text-gray-600 transition-colors"
+        >
+          <X className="w-6 h-6" />
+        </button>
+      </div>
 
+      {/* Conversation History */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        {conversationContext.map((message, index) => (
+          <div
+            key={index}
+            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div
+              className={`max-w-[80%] rounded-lg p-4 ${
+                message.role === 'user'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-900'
+              }`}
+            >
+              <p className="whitespace-pre-wrap">{message.content}</p>
+              <p
+                className={`text-xs mt-2 ${
+                  message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
+                }`}
+              >
+                {message.timestamp}
+              </p>
+            </div>
+          </div>
+        ))}
+        
+        {isLoadingQuestion && (
+          <div className="flex justify-start">
+            <div className="bg-gray-100 rounded-lg p-4">
+              <div className="flex items-center space-x-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                <span className="text-gray-600">Analyzing your question...</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Input Area */}
+      <div className="border-t border-gray-200 p-4">
+        <div className="flex gap-3">
+          <input
+            type="text"
+            value={questionInput}
+            onChange={(e) => setQuestionInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleQuestionSubmit()}
+            placeholder="Ask a follow-up question..."
+            className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+            disabled={isLoadingQuestion}
+          />
+          <button
+            onClick={handleQuestionSubmit}
+            disabled={!questionInput.trim() || isLoadingQuestion}
+            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+          >
+            {isLoadingQuestion ? (
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+            ) : (
+              <>
+                <MessageCircle className="w-5 h-5 mr-2" />
+                Ask
+              </>
+            )}
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">
+          Press Enter to send • This conversation is contextual
+        </p>
+      </div>
+    </div>
+  </div>
+);
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
       {/* Navigation */}
@@ -740,6 +867,8 @@ const AnalysisResultsPage = () => {
           </div>
         )}
       </div>
+      {/* Add this just before the final closing </div> in your return statement */}
+{showQAPopup && <QAPopup />}
     </div>
   );
 };
