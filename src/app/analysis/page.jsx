@@ -6,15 +6,18 @@ import 'reactflow/dist/style.css';
 import { CheckCircle, AlertCircle, Shield, ArrowLeft, FileText, Users, Clock, Download, MessageCircle, HelpCircle, Tag, X } from 'lucide-react';
 
 const AnalysisResultsPage = () => {
+  const [chatCounter, setChatCounter] = useState(1);
   const [analysisResults, setAnalysisResults] = useState(null);
   const [activeSection, setActiveSection] = useState('summary');
-  const [questionInput, setQuestionInput] = useState('');
   const [isLoadingQuestion, setIsLoadingQuestion] = useState(false);
-  const [qnaHistory, setQnaHistory] = useState([]);
   const [isFullscreenFlow, setIsFullscreenFlow] = useState(false);
+  const [viewingSuggestedQA, setViewingSuggestedQA] = useState(null);
   // Add this new state near your other useState declarations
-const [conversationContext, setConversationContext] = useState([]);
 const [showQAPopup, setShowQAPopup] = useState(false);
+const [popupQuestionInput, setPopupQuestionInput] = useState(''); // NEW - separate state for popup
+const [chatSessions, setChatSessions] = useState([]); // Store all chat sessions
+const [showChatHistory, setShowChatHistory] = useState(false); // Toggle chat history view
+const [activeChat, setActiveChat] = useState(null); // Current active chat with its messages
 
   const getNodeStyle = (nodeType) => {
     const styles = {
@@ -26,28 +29,43 @@ const [showQAPopup, setShowQAPopup] = useState(false);
     };
     return styles[nodeType] || styles.process;
   };
-
   useEffect(() => {
-    // Load results from session storage
     const savedResults = sessionStorage.getItem('analysisResults');
     if (savedResults) {
       try {
         const parsed = JSON.parse(savedResults);
         setAnalysisResults(parsed);
+        
+        // Load all chat sessions
+        const sessions = JSON.parse(sessionStorage.getItem('chatSessions') || '[]');
+        setChatSessions(sessions);
+        
+        // Load chat counter
+        const savedCounter = sessionStorage.getItem('chatCounter');
+        if (savedCounter) {
+          setChatCounter(parseInt(savedCounter));
+        }
+        
       } catch (error) {
         console.error('Error loading saved results:', error);
-        // Redirect back to upload if no valid data
         window.location.href = '/docupload';
       }
     } else {
-      // No results found, redirect to upload
       window.location.href = '/docupload';
     }
   }, []);
-
   const startNewAnalysis = () => {
     sessionStorage.removeItem('analysisResults');
+    sessionStorage.removeItem('chatSessions');
+    sessionStorage.removeItem('chatCounter');
     window.location.href = '/docupload';
+  };
+
+  const deleteChatSession = (chatId, e) => {
+    e.stopPropagation();
+    const updatedSessions = chatSessions.filter(s => s.id !== chatId);
+    setChatSessions(updatedSessions);
+    sessionStorage.setItem('chatSessions', JSON.stringify(updatedSessions));
   };
 
   const getRiskColor = (risk) => {
@@ -72,25 +90,33 @@ const [showQAPopup, setShowQAPopup] = useState(false);
     };
     return colors[category] || 'bg-gray-100 text-gray-800';
   };
-
-  const handleQuestionSubmit = async () => {
-    if (!questionInput.trim()) return;
+  const handleQuestionSubmit = async (isFirstQuestion = false, initialQuestion = '') => {
+    const currentQuestion = isFirstQuestion ? initialQuestion : popupQuestionInput.trim();
+    
+    if (!currentQuestion) return;
   
-    // Add user question to history immediately for UI feedback
-    const userQuestion = {
+    // Add user message to active chat immediately
+    const userMessage = {
       role: 'user',
-      content: questionInput,
+      content: currentQuestion,
       timestamp: new Date().toLocaleTimeString()
     };
     
-    setConversationContext(prev => [...prev, userQuestion]);
-    setShowQAPopup(true);
+    setActiveChat(prev => ({
+      ...prev,
+      messages: [...(prev?.messages || []), userMessage]
+    }));
     
-    const currentQuestion = questionInput;
-    setQuestionInput('');
+    if (!isFirstQuestion) {
+      setPopupQuestionInput('');
+    }
+    
     setIsLoadingQuestion(true);
   
     try {
+      // Send conversation history for follow-ups
+      const conversationHistory = activeChat?.messages || [];
+      
       const response = await fetch('https://googel-hackathon-backend.onrender.com/api/ask-question', {
         method: 'POST',
         headers: {
@@ -101,63 +127,100 @@ const [showQAPopup, setShowQAPopup] = useState(false);
           analysisId: analysisResults?.analysis?.metadata?.analysisId,
           context: analysisResults?.analysis,
           originalText: analysisResults?.originalText,
-          conversationHistory: conversationContext // Send conversation history for context
+          conversationHistory: conversationHistory
         }),
       });
   
       const result = await response.json();
       
       if (result.success) {
-        // Add AI response to conversation context
-        const aiResponse = {
+        const aiMessage = {
           role: 'assistant',
           content: result.answer,
           timestamp: new Date().toLocaleTimeString()
         };
         
-        setConversationContext(prev => [...prev, aiResponse]);
+        setActiveChat(prev => ({
+          ...prev,
+          messages: [...prev.messages, aiMessage]
+        }));
         
-        // Also add to main Q&A history
-        setQnaHistory(prev => [...prev, {
-          question: currentQuestion,
-          answer: result.answer,
-          timestamp: new Date().toLocaleTimeString(),
-          source: 'user'
-        }]);
       } else {
         alert('Failed to get answer: ' + result.error);
-        // Remove the user question if request failed
-        setConversationContext(prev => prev.slice(0, -1));
+        // Remove the user message if failed
+        setActiveChat(prev => ({
+          ...prev,
+          messages: prev.messages.slice(0, -1)
+        }));
       }
     } catch (error) {
       console.error('Error asking question:', error);
       alert('Error processing question. Please try again.');
-      // Remove the user question if request failed
-      setConversationContext(prev => prev.slice(0, -1));
+      // Remove the user message if failed
+      setActiveChat(prev => ({
+        ...prev,
+        messages: prev.messages.slice(0, -1)
+      }));
     } finally {
       setIsLoadingQuestion(false);
     }
   };
-
-  const handleSuggestedQuestion = (suggestedQA) => {
-    // Add to conversation context
-    setConversationContext([
-      { role: 'user', content: suggestedQA.question, timestamp: new Date().toLocaleTimeString() },
-      { role: 'assistant', content: suggestedQA.answer, timestamp: new Date().toLocaleTimeString() }
-    ]);
+  const startNewChat = (initialQuestion, initialAnswer = null) => {
+    const newChat = {
+      id: chatCounter,
+      title: `Chat ${chatCounter}`,
+      createdAt: new Date().toISOString(),
+      messages: initialAnswer ? [
+        {
+          role: 'user',
+          content: initialQuestion,
+          timestamp: new Date().toLocaleTimeString()
+        },
+        {
+          role: 'assistant',
+          content: initialAnswer,
+          timestamp: new Date().toLocaleTimeString()
+        }
+      ] : []
+    };
     
-    // Add suggested Q&A to main history
-    setQnaHistory([...qnaHistory, {
-      question: suggestedQA.question,
-      answer: suggestedQA.answer,
-      timestamp: new Date().toLocaleTimeString(),
-      source: 'suggested',
-      category: suggestedQA.category
-    }]);
-    
+    setActiveChat(newChat);
     setShowQAPopup(true);
+    
+    // Increment counter and save it
+    const newCounter = chatCounter + 1;
+    setChatCounter(newCounter);
+    sessionStorage.setItem('chatCounter', newCounter.toString());
+    
+    // If no initial answer, ask the question
+    if (!initialAnswer) {
+      handleQuestionSubmit(true, initialQuestion);
+    }
   };
-
+  const openChatFromHistory = (chatId) => {
+    const chat = chatSessions.find(s => s.id === chatId);
+    if (chat) {
+      setActiveChat({ ...chat, isViewOnly: true }); // Mark as view only
+      setShowQAPopup(true);
+      setShowChatHistory(false);
+    }
+  };
+  const closeAndSaveChat = () => {
+    if (activeChat && activeChat.messages.length > 0 && !activeChat.isViewOnly) {
+      // Only save if it's not a view-only chat (from history)
+      const updatedSessions = [...chatSessions, activeChat];
+      setChatSessions(updatedSessions);
+      sessionStorage.setItem('chatSessions', JSON.stringify(updatedSessions));
+    }
+    
+    // Clear active chat
+    setActiveChat(null);
+    setShowQAPopup(false);
+    setPopupQuestionInput('');
+  };
+  const handleSuggestedQuestion = (suggestedQA) => {
+    setViewingSuggestedQA(suggestedQA);
+  };
   if (!analysisResults) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
@@ -170,31 +233,95 @@ const [showQAPopup, setShowQAPopup] = useState(false);
   }
 
   const { analysis, metadata } = analysisResults;
-// Q&A Popup Component
+
+  const ChatHistoryPanel = () => {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] flex flex-col">
+          <div className="border-b border-gray-200 px-6 py-4 flex justify-between items-center">
+            <h3 className="text-xl font-bold text-gray-900">Chat History</h3>
+            <button
+              onClick={() => setShowChatHistory(false)}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+  
+          <div className="flex-1 overflow-y-auto p-6">
+            {chatSessions.length === 0 ? (
+              <div className="text-center py-12">
+                <MessageCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <p className="text-lg text-gray-600">No chat history yet</p>
+                <p className="text-gray-500 mt-2">Start asking questions about your contract</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {chatSessions.slice().reverse().map((session) => (
+                  <div
+                    key={session.id}
+                    onClick={() => openChatFromHistory(session.id)}
+                    className="p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all cursor-pointer group"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-gray-900 group-hover:text-blue-700 mb-2">
+                          {session.title}
+                        </h4>
+                        <p className="text-sm text-gray-600 mb-2">
+                          {session.messages.length / 2} exchanges
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {new Date(session.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <button
+                        onClick={(e) => deleteChatSession(session.id, e)}
+                        className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 // Q&A Popup Component
 const QAPopup = () => {
   const inputRef = useRef(null);
+  const messagesEndRef = useRef(null);
+  
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [activeChat?.messages, isLoadingQuestion]);
+  
+  const isViewOnly = activeChat?.isViewOnly;
   
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col">
-        {/* Popup Header */}
         <div className="border-b border-gray-200 px-6 py-4 flex justify-between items-center">
-          <h3 className="text-xl font-bold text-gray-900">Contract Q&A</h3>
+          <div>
+            <h3 className="text-xl font-bold text-gray-900">Contract Q&A</h3>
+            {isViewOnly && (
+              <p className="text-sm text-gray-500 mt-1">View Only - This conversation is closed</p>
+            )}
+          </div>
           <button
-            onClick={() => {
-              setShowQAPopup(false);
-              setConversationContext([]);
-            }}
+            onClick={closeAndSaveChat}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
             <X className="w-6 h-6" />
           </button>
         </div>
 
-        {/* Conversation History */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {conversationContext.map((message, index) => (
+          {activeChat?.messages.map((message, index) => (
             <div
               key={`msg-${index}`}
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -228,46 +355,49 @@ const QAPopup = () => {
               </div>
             </div>
           )}
+          
+          <div ref={messagesEndRef} />
         </div>
 
-        {/* Input Area */}
-        <div className="border-t border-gray-200 p-4">
-          <div className="flex gap-3">
-            <input
-              ref={inputRef}
-              type="text"
-              value={questionInput}
-              onChange={(e) => setQuestionInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleQuestionSubmit();
-                }
-              }}
-              placeholder="Ask a follow-up question..."
-              className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
-              disabled={isLoadingQuestion}
-              autoFocus
-            />
-            <button
-              onClick={handleQuestionSubmit}
-              disabled={!questionInput.trim() || isLoadingQuestion}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-            >
-              {isLoadingQuestion ? (
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-              ) : (
-                <>
-                  <MessageCircle className="w-5 h-5 mr-2" />
-                  Ask
-                </>
-              )}
-            </button>
+        {!isViewOnly && (
+          <div className="border-t border-gray-200 p-4">
+            <div className="flex gap-3">
+              <input
+                ref={inputRef}
+                type="text"
+                value={popupQuestionInput}
+                onChange={(e) => setPopupQuestionInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleQuestionSubmit(false);
+                  }
+                }}
+                placeholder="Ask a follow-up question..."
+                className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                disabled={isLoadingQuestion}
+                autoFocus
+              />
+              <button
+                onClick={() => handleQuestionSubmit(false)}
+                disabled={!popupQuestionInput.trim() || isLoadingQuestion}
+                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              >
+                {isLoadingQuestion ? (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                ) : (
+                  <>
+                    <MessageCircle className="w-5 h-5 mr-2" />
+                    Ask
+                  </>
+                )}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Press Enter to send • This conversation maintains context
+            </p>
           </div>
-          <p className="text-xs text-gray-500 mt-2">
-            Press Enter to send • This conversation is contextual
-          </p>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -565,120 +695,137 @@ const QAPopup = () => {
 )}
 
             {/* Q&A Section */}
-            {activeSection === 'qna' && (
-              <>
-                <div className="bg-white rounded-xl shadow-lg p-6">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6">Ask Questions About Your Contract</h2>
-                  
-                  {/* Question Input */}
-                  <div className="mb-6">
-                    <div className="flex gap-3">
-                      <input
-                        type="text"
-                        value={questionInput}
-                        onChange={(e) => setQuestionInput(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleQuestionSubmit()}
-                        placeholder="Ask about payment terms, termination clauses, liability, etc."
-                        className="flex-1 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
-                        disabled={isLoadingQuestion}
-                      />
-                      <button
-                        onClick={handleQuestionSubmit}
-                        disabled={!questionInput.trim() || isLoadingQuestion}
-                        className="bg-blue-600 text-white px-6 py-4 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                      >
-                        {isLoadingQuestion ? (
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        ) : (
-                          'Ask'
-                        )}
-                      </button>
-                    </div>
-                  </div>
+{/* Q&A Section */}
+{activeSection === 'qna' && (
+  <>
+    <div className="bg-white rounded-xl shadow-lg p-6">
+      {/* Back button when viewing a suggested Q&A */}
+      {viewingSuggestedQA && (
+        <button
+          onClick={() => setViewingSuggestedQA(null)}
+          className="flex items-center text-blue-600 hover:text-blue-700 mb-4"
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to Suggested Questions
+        </button>
+      )}
 
-                  {/* Suggested Questions */}
-                  {analysis.suggestedQuestions && analysis.suggestedQuestions.length > 0 && qnaHistory.length === 0 && (
-                    <div className="mb-8">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                        <HelpCircle className="w-5 h-5 mr-2" />
-                        Suggested Questions
-                      </h3>
-                      <div className="grid gap-3">
-                        {analysis.suggestedQuestions.map((qa, index) => (
-                          <button
-                            key={index}
-                            onClick={() => handleSuggestedQuestion(qa)}
-                            className="text-left p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all group"
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <p className="font-medium text-gray-900 group-hover:text-blue-700">{qa.question}</p>
-                                <p className="text-sm text-gray-600 mt-1">{qa.answer.slice(0, 100)}...</p>
-                              </div>
-                              <span className={`px-2 py-1 rounded-full text-xs font-medium ml-3 ${getCategoryColor(qa.category)}`}>
-                                {qa.category}
-                              </span>
-                            </div>
-                          </button>
-                        ))}
+      {/* Show individual suggested Q&A */}
+      {viewingSuggestedQA ? (
+        <div>
+          <div className="mb-4">
+            <span className={`px-3 py-1 rounded-full text-sm font-medium ${getCategoryColor(viewingSuggestedQA.category)}`}>
+              {viewingSuggestedQA.category}
+            </span>
+          </div>
+          <div className="space-y-4">
+            <div className="p-4 bg-blue-50 rounded-lg">
+              <p className="text-sm font-medium text-gray-500 mb-2">Question</p>
+              <p className="text-gray-900 font-medium">{viewingSuggestedQA.question}</p>
+            </div>
+            <div className="p-4 bg-green-50 rounded-lg">
+              <p className="text-sm font-medium text-gray-500 mb-2">Answer</p>
+              <p className="text-gray-900">{viewingSuggestedQA.answer}</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Original Q&A interface */}
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-gray-900">Ask Questions About Your Contract</h2>
+            <button
+              onClick={() => setShowChatHistory(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              <Clock className="w-4 h-4" />
+              View History ({chatSessions.length})
+            </button>
+          </div>
+          
+          <div className="mb-6">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+              <p className="text-blue-800 text-sm">
+                <strong>How it works:</strong> Each question starts a new conversation. Ask follow-ups in the popup, 
+                and when you close it, the entire chat is saved to history. Each chat is independent.
+              </p>
+            </div>
+            
+            <div className="flex gap-3">
+              <input
+                type="text"
+                value={popupQuestionInput}
+                onChange={(e) => setPopupQuestionInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (popupQuestionInput.trim()) {
+                      startNewChat(popupQuestionInput.trim());
+                      setPopupQuestionInput('');
+                    }
+                  }
+                }}
+                placeholder="Ask about payment terms, termination clauses, liability, etc."
+                className="flex-1 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+              />
+              <button
+                onClick={() => {
+                  if (popupQuestionInput.trim()) {
+                    startNewChat(popupQuestionInput.trim());
+                    setPopupQuestionInput('');
+                  }
+                }}
+                disabled={!popupQuestionInput.trim()}
+                className="bg-blue-600 text-white px-6 py-4 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              >
+                <MessageCircle className="w-5 h-5 mr-2" />
+                Ask
+              </button>
+            </div>
+          </div>
+
+          {/* Suggested Questions */}
+          {analysis.suggestedQuestions && analysis.suggestedQuestions.length > 0 && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <HelpCircle className="w-5 h-5 mr-2" />
+                Suggested Questions (Click to view)
+              </h3>
+              <div className="grid gap-3">
+                {analysis.suggestedQuestions.map((qa, index) => (
+                  <button
+                    key={index}
+                    onClick={() => handleSuggestedQuestion(qa)}
+                    className="text-left p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all group"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900 group-hover:text-blue-700">{qa.question}</p>
+                        <p className="text-sm text-gray-600 mt-1">{qa.answer.slice(0, 100)}...</p>
                       </div>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ml-3 ${getCategoryColor(qa.category)}`}>
+                        {qa.category}
+                      </span>
                     </div>
-                  )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-                  {/* Q&A History */}
-                  {qnaHistory.length > 0 && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold text-gray-900">Questions & Answers</h3>
-                        {analysis.suggestedQuestions && analysis.suggestedQuestions.length > 0 && (
-                          <button
-                            onClick={() => setQnaHistory([])}
-                            className="text-sm text-blue-600 hover:text-blue-700"
-                          >
-                            Show Suggested Questions
-                          </button>
-                        )}
-                      </div>
-                      {qnaHistory.map((qa, index) => (
-                        <div key={index} className="border border-gray-200 rounded-lg p-4">
-                          <div className="bg-blue-50 p-3 rounded-lg mb-3">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <p className="font-medium text-blue-900">Q: {qa.question}</p>
-                                <p className="text-xs text-blue-600 mt-1">{qa.timestamp}</p>
-                              </div>
-                              {qa.category && (
-                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(qa.category)}`}>
-                                  {qa.category}
-                                </span>
-                              )}
-                              {qa.source && (
-                                <span className={`px-2 py-1 rounded-full text-xs font-medium ml-2 ${
-                                  qa.source === 'suggested' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'
-                                }`}>
-                                  {qa.source === 'suggested' ? 'Suggested' : 'Custom'}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="bg-gray-50 p-3 rounded-lg">
-                            <p className="text-gray-800">{qa.answer}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {qnaHistory.length === 0 && (!analysis.suggestedQuestions || analysis.suggestedQuestions.length === 0) && (
-                    <div className="text-center py-8">
-                      <MessageCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                      <p className="text-lg text-gray-600 mb-2">No questions asked yet</p>
-                      <p className="text-gray-500">Ask specific questions about your contract terms, clauses, or obligations.</p>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
+          {/* Empty State */}
+          {chatSessions.length === 0 && (
+            <div className="text-center py-8">
+              <MessageCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <p className="text-lg text-gray-600 mb-2">No questions asked yet</p>
+              <p className="text-gray-500">Ask questions above or click a suggested question to view answers</p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  </>
+)}
           </div>
 
           {/* Sidebar */}
@@ -753,43 +900,43 @@ const QAPopup = () => {
               </div>
             </div>
 
-            {/* Quick Access to Suggested Questions in Sidebar */}
-            {analysis.suggestedQuestions && analysis.suggestedQuestions.length > 0 && activeSection !== 'qna' && (
-              <div className="bg-white rounded-xl shadow-lg p-6">
-                <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-                  <HelpCircle className="w-5 h-5 mr-2" />
-                  Quick Questions
-                </h3>
-                <div className="space-y-2">
-                  {analysis.suggestedQuestions.slice(0, 3).map((qa, index) => (
-                    <button
-                      key={index}
-                      onClick={() => {
-                        setActiveSection('qna');
-                        setTimeout(() => handleSuggestedQuestion(qa), 100);
-                      }}
-                      className="w-full text-left p-3 text-sm bg-gray-50 hover:bg-blue-50 rounded-lg transition-colors"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium text-gray-900">{qa.question}</span>
-                        <Tag className="w-3 h-3 text-gray-400" />
-                      </div>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${getCategoryColor(qa.category)}`}>
-                        {qa.category}
-                      </span>
-                    </button>
-                  ))}
-                  {analysis.suggestedQuestions.length > 3 && (
-                    <button
-                      onClick={() => setActiveSection('qna')}
-                      className="w-full text-center p-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
-                    >
-                      View all {analysis.suggestedQuestions.length} questions →
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
+{/* Quick Access to Suggested Questions in Sidebar */}
+{analysis.suggestedQuestions && analysis.suggestedQuestions.length > 0 && activeSection !== 'qna' && (
+  <div className="bg-white rounded-xl shadow-lg p-6">
+    <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
+      <HelpCircle className="w-5 h-5 mr-2" />
+      Quick Questions
+    </h3>
+    <div className="space-y-2">
+      {analysis.suggestedQuestions.slice(0, 3).map((qa, index) => (
+        <button
+          key={index}
+          onClick={() => {
+            setActiveSection('qna');
+            setTimeout(() => setViewingSuggestedQA(qa), 100);
+          }}
+          className="w-full text-left p-3 text-sm bg-gray-50 hover:bg-blue-50 rounded-lg transition-colors"
+        >
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-medium text-gray-900">{qa.question}</span>
+            <Tag className="w-3 h-3 text-gray-400" />
+          </div>
+          <span className={`text-xs px-2 py-0.5 rounded-full ${getCategoryColor(qa.category)}`}>
+            {qa.category}
+          </span>
+        </button>
+      ))}
+      {analysis.suggestedQuestions.length > 3 && (
+        <button
+          onClick={() => setActiveSection('qna')}
+          className="w-full text-center p-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
+        >
+          View all {analysis.suggestedQuestions.length} questions →
+        </button>
+      )}
+    </div>
+  </div>
+)}
 
             {/* Parties Information */}
             {(metadata.parties?.party1 || metadata.parties?.party2) && (
@@ -881,8 +1028,9 @@ const QAPopup = () => {
         )}
       </div>
       {/* Add this just before the final closing </div> in your return statement */}
+      {showChatHistory && <ChatHistoryPanel />}
 {showQAPopup && <QAPopup />}
-    </div>
+  </div>
   );
 };
 
