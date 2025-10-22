@@ -1,9 +1,8 @@
-
 "use client"
 import React, { useState, useEffect, useRef } from 'react';
 import ReactFlow, { Background, Controls, MiniMap } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { CheckCircle, AlertCircle, Shield, ArrowLeft, FileText, Users, Clock, Download, MessageCircle, HelpCircle, Tag, X } from 'lucide-react';
+import { CheckCircle, AlertCircle, Shield, ArrowLeft, FileText, Users, Clock, Download, MessageCircle, HelpCircle, Tag, X, Volume2, VolumeX } from 'lucide-react';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle, Table, TableCell, TableRow, WidthType } from 'docx';
 import { saveAs } from 'file-saver';
 
@@ -20,7 +19,297 @@ const [popupQuestionInput, setPopupQuestionInput] = useState(''); // NEW - separ
 const [chatSessions, setChatSessions] = useState([]); // Store all chat sessions
 const [showChatHistory, setShowChatHistory] = useState(false); // Toggle chat history view
 const [activeChat, setActiveChat] = useState(null); // Current active chat with its messages
+const [isSpeaking, setIsSpeaking] = useState(false);
+const [currentAudio, setCurrentAudio] = useState(null);
+const [speakingSection, setSpeakingSection] = useState(null);
+const [speakingQuestionIndex, setSpeakingQuestionIndex] = useState(null);
+// Add these new states near your other useState declarations
+const [audioCache, setAudioCache] = useState({}); // Cache generated audio
+const [loadingAudio, setLoadingAudio] = useState({}); // Track loading state per section
+const [abortControllers, setAbortControllers] = useState({}); // Track abort controllers
 
+// Function to convert PCM to WAV
+const pcmToWav = (base64PCM, sampleRate = 24000) => {
+  const pcmData = atob(base64PCM);
+  const samples = new Int16Array(pcmData.length / 2);
+  
+  for (let i = 0; i < samples.length; i++) {
+    samples[i] = (pcmData.charCodeAt(i * 2) | (pcmData.charCodeAt(i * 2 + 1) << 8));
+  }
+  
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  
+  // WAV header
+  const writeString = (offset, string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+  
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+  
+  const offset = 44;
+  for (let i = 0; i < samples.length; i++) {
+    view.setInt16(offset + i * 2, samples[i], true);
+  }
+  
+  return new Blob([buffer], { type: 'audio/wav' });
+};
+
+// Function to generate speech from text
+const speakText = async (text, sectionName = null, questionIndex = null) => {
+  try {
+    const cacheKey = sectionName || `question-${questionIndex}`;
+    
+    // If already speaking this section, stop it
+    if (isSpeaking && speakingSection === sectionName && speakingQuestionIndex === questionIndex) {
+      stopSpeaking();
+      return;
+    }
+    
+    // Stop any currently playing audio (but don't revoke URLs)
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+    }
+    
+    // Cancel any ongoing requests
+    if (abortControllers[cacheKey]) {
+      abortControllers[cacheKey].abort();
+    }
+    
+    // Check cache first
+    if (audioCache[cacheKey]) {
+      console.log('Playing cached audio for:', cacheKey);
+      const audio = new Audio(audioCache[cacheKey]);
+      
+      audio.oncanplaythrough = () => {
+        console.log('Cached audio ready to play');
+      };
+      
+      audio.onended = () => {
+        setIsSpeaking(false);
+        setSpeakingSection(null);
+        setSpeakingQuestionIndex(null);
+      };
+      
+      audio.onerror = (e) => {
+        console.error('Error with cached audio, will regenerate');
+        // Clear bad cache and regenerate
+        setAudioCache(prev => {
+          const newCache = { ...prev };
+          if (newCache[cacheKey]) {
+            URL.revokeObjectURL(newCache[cacheKey]);
+            delete newCache[cacheKey];
+          }
+          return newCache;
+        });
+        // Retry by calling speakText again
+        setTimeout(() => speakText(text, sectionName, questionIndex), 100);
+      };
+      
+      setCurrentAudio(audio);
+      setIsSpeaking(true);
+      setSpeakingSection(sectionName);
+      setSpeakingQuestionIndex(questionIndex);
+      
+      audio.play().catch(err => {
+        console.error('Error playing cached audio:', err);
+        setIsSpeaking(false);
+        setSpeakingSection(null);
+        setSpeakingQuestionIndex(null);
+      });
+      
+      return;
+    }
+    
+    // Show loading state
+    setLoadingAudio(prev => ({ ...prev, [cacheKey]: true }));
+    
+    // Create abort controller for this request
+    const controller = new AbortController();
+    setAbortControllers(prev => ({ ...prev, [cacheKey]: controller }));
+    
+    console.log('Generating new audio for:', cacheKey);
+    const response = await fetch('https://googel-hackathon-backend.onrender.com/api/text-to-speech', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text: text.slice(0, 900),
+        voiceName: 'Puck',
+        stylePrompt: 'Read this legal text clearly and professionally'
+      }),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    
+    if (result.success && result.audioData) {
+      console.log('Audio data received, converting to WAV');
+      const wavBlob = pcmToWav(result.audioData);
+      const audioUrl = URL.createObjectURL(wavBlob);
+      
+      // Cache immediately
+      setAudioCache(prev => ({ ...prev, [cacheKey]: audioUrl }));
+      
+      const audio = new Audio(audioUrl);
+      
+      audio.oncanplaythrough = () => {
+        console.log('New audio ready to play');
+      };
+      
+      audio.onended = () => {
+        console.log('Audio playback ended');
+        setIsSpeaking(false);
+        setSpeakingSection(null);
+        setSpeakingQuestionIndex(null);
+      };
+      
+      audio.onerror = (e) => {
+        console.error('Error playing new audio:', e);
+        setIsSpeaking(false);
+        setSpeakingSection(null);
+        setSpeakingQuestionIndex(null);
+        // Remove from cache if it fails
+        setAudioCache(prev => {
+          const newCache = { ...prev };
+          if (newCache[cacheKey]) {
+            URL.revokeObjectURL(newCache[cacheKey]);
+            delete newCache[cacheKey];
+          }
+          return newCache;
+        });
+      };
+      
+      setCurrentAudio(audio);
+      setIsSpeaking(true);
+      setSpeakingSection(sectionName);
+      setSpeakingQuestionIndex(questionIndex);
+      
+      audio.play().catch(err => {
+        console.error('Error starting playback:', err);
+        setIsSpeaking(false);
+        setSpeakingSection(null);
+        setSpeakingQuestionIndex(null);
+      });
+      
+    } else {
+      throw new Error(result.error || 'No audio data received');
+    }
+    
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.log('Speech generation cancelled');
+      return;
+    }
+    console.error('Error generating speech:', error);
+    alert('Error generating speech: ' + error.message);
+    setIsSpeaking(false);
+    setSpeakingSection(null);
+    setSpeakingQuestionIndex(null);
+  } finally {
+    const cacheKey = sectionName || `question-${questionIndex}`;
+    setLoadingAudio(prev => ({ ...prev, [cacheKey]: false }));
+    setAbortControllers(prev => {
+      const newControllers = { ...prev };
+      delete newControllers[cacheKey];
+      return newControllers;
+    });
+  }
+};
+
+// Function to stop speaking
+const stopSpeaking = () => {
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.currentTime = 0;
+    // Don't set src to empty or revoke URL - keep it cached
+  }
+  
+  // Cancel all ongoing requests
+  Object.values(abortControllers).forEach(controller => {
+    try {
+      controller.abort();
+    } catch (e) {
+      // Already aborted
+    }
+  });
+  
+  setIsSpeaking(false);
+  setSpeakingSection(null);
+  setSpeakingQuestionIndex(null);
+  setAbortControllers({});
+  setCurrentAudio(null);
+};
+
+// Function to get section text content
+const getSectionText = (section) => {
+  switch(section) {
+    case 'summary':
+      return `Document Type: ${analysis.summary?.documentType}. Main Purpose: ${analysis.summary?.mainPurpose}. Key Highlights: ${analysis.summary?.keyHighlights?.join('. ')}`;
+    
+    case 'risks':
+      const risksText = analysis.riskAssessment?.risks?.map(r => 
+        `${r.type}. ${r.description}. Recommendation: ${r.recommendation}`
+      ).join('. ');
+      return `Overall Risk: ${analysis.riskAssessment?.overallRisk}. ${risksText}`;
+    
+    case 'terms':
+      const termsText = analysis.keyTerms?.map(t => 
+        `${t.term}. ${t.explanation}`
+      ).join('. ');
+      return termsText;
+    
+    default:
+      return '';
+  }
+};
+useEffect(() => {
+  return () => {
+    // Only cleanup on component unmount
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.src = '';
+    }
+    
+    // Cancel all ongoing requests
+    Object.values(abortControllers).forEach(controller => {
+      try {
+        controller.abort();
+      } catch (e) {
+        // Already aborted
+      }
+    });
+    
+    // Revoke all cached audio URLs only on unmount
+    Object.values(audioCache).forEach(url => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        console.error('Error revoking URL:', e);
+      }
+    });
+  };
+}, []); // Empty dependency - only runs on unmount
 const exportToDocx = async () => {
   try {
     const doc = new Document({
@@ -736,9 +1025,45 @@ const QAPopup = () => {
             
             {/* Summary Section */}
             {activeSection === 'summary' && (
-              <>
-                <div className="bg-white rounded-xl shadow-lg p-6">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6">Document Overview</h2>
+  <>
+    <div className="bg-white rounded-xl shadow-lg p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold text-gray-900">Document Overview</h2>
+        <button
+  onClick={() => {
+    if (isSpeaking && speakingSection === 'summary') {
+      stopSpeaking();
+    } else {
+      speakText(getSectionText('summary'), 'summary');
+    }
+  }}
+  disabled={loadingAudio['summary']}
+  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+    loadingAudio['summary']
+      ? 'bg-gray-100 text-gray-400 cursor-wait'
+      : isSpeaking && speakingSection === 'summary'
+      ? 'bg-red-100 text-red-700 hover:bg-red-200'
+      : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+  } disabled:opacity-50 disabled:cursor-not-allowed`}
+>
+  {loadingAudio['summary'] ? (
+    <>
+      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-600"></div>
+      Generating...
+    </>
+  ) : isSpeaking && speakingSection === 'summary' ? (
+    <>
+      <VolumeX className="w-5 h-5" />
+      Stop
+    </>
+  ) : (
+    <>
+      <Volume2 className="w-5 h-5" />
+      Speak
+    </>
+  )}
+</button>
+      </div>
                   <div className="grid md:grid-cols-2 gap-6 mb-6">
                     <div className="p-4 bg-blue-50 rounded-lg">
                       <p className="text-sm font-medium text-gray-500 mb-1">Document Type</p>
@@ -769,16 +1094,52 @@ const QAPopup = () => {
 
             {/* Risk Assessment Section */}
             {activeSection === 'risks' && (
-              <>
-                <div className="bg-white rounded-xl shadow-lg p-6">
-                  <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-2xl font-bold text-gray-900">Risk Assessment</h2>
-                    <div className={`px-4 py-2 rounded-full border ${getRiskColor(analysis.riskAssessment?.overallRisk)}`}>
-                      <span className="font-semibold">
-                        {analysis.riskAssessment?.overallRisk || 'Medium'} Risk
-                      </span>
-                    </div>
-                  </div>
+  <>
+    <div className="bg-white rounded-xl shadow-lg p-6">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold text-gray-900">Risk Assessment</h2>
+        <div className="flex items-center gap-3">
+        <button
+  onClick={() => {
+    if (isSpeaking && speakingSection === 'risks') {
+      stopSpeaking();
+    } else {
+      speakText(getSectionText('risks'), 'risks');
+    }
+  }}
+  disabled={loadingAudio['risks']}
+  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+    loadingAudio['risks']
+      ? 'bg-gray-100 text-gray-400 cursor-wait'
+      : isSpeaking && speakingSection === 'risks'
+      ? 'bg-red-100 text-red-700 hover:bg-red-200'
+      : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+  } disabled:opacity-50 disabled:cursor-not-allowed`}
+>
+  {loadingAudio['risks'] ? (
+    <>
+      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-600"></div>
+      Generating...
+    </>
+  ) : isSpeaking && speakingSection === 'risks' ? (
+    <>
+      <VolumeX className="w-5 h-5" />
+      Stop
+    </>
+  ) : (
+    <>
+      <Volume2 className="w-5 h-5" />
+      Speak
+    </>
+  )}
+</button>
+          <div className={`px-4 py-2 rounded-full border ${getRiskColor(analysis.riskAssessment?.overallRisk)}`}>
+            <span className="font-semibold">
+              {analysis.riskAssessment?.overallRisk || 'Medium'} Risk
+            </span>
+          </div>
+        </div>
+      </div>
                   
                   {analysis.riskAssessment?.risks?.length > 0 ? (
                     <div className="space-y-4">
@@ -849,9 +1210,45 @@ const QAPopup = () => {
 
             {/* Key Terms Section */}
             {activeSection === 'terms' && (
-              <>
-                <div className="bg-white rounded-xl shadow-lg p-6">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6">Key Terms Explained</h2>
+  <>
+    <div className="bg-white rounded-xl shadow-lg p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold text-gray-900">Key Terms Explained</h2>
+        <button
+  onClick={() => {
+    if (isSpeaking && speakingSection === 'terms') {
+      stopSpeaking();
+    } else {
+      speakText(getSectionText('terms'), 'terms');
+    }
+  }}
+  disabled={loadingAudio['terms']}
+  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+    loadingAudio['terms']
+      ? 'bg-gray-100 text-gray-400 cursor-wait'
+      : isSpeaking && speakingSection === 'terms'
+      ? 'bg-red-100 text-red-700 hover:bg-red-200'
+      : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+  } disabled:opacity-50 disabled:cursor-not-allowed`}
+>
+  {loadingAudio['terms'] ? (
+    <>
+      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-600"></div>
+      Generating...
+    </>
+  ) : isSpeaking && speakingSection === 'terms' ? (
+    <>
+      <VolumeX className="w-5 h-5" />
+      Stop
+    </>
+  ) : (
+    <>
+      <Volume2 className="w-5 h-5" />
+      Speak
+    </>
+  )}
+</button>
+      </div>
                   
                   {analysis.keyTerms?.length > 0 ? (
                     <div className="space-y-4">
@@ -1033,23 +1430,51 @@ const QAPopup = () => {
                 Suggested Questions (Click to view)
               </h3>
               <div className="grid gap-3">
-                {analysis.suggestedQuestions.map((qa, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleSuggestedQuestion(qa)}
-                    className="text-left p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all group"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900 group-hover:text-blue-700">{qa.question}</p>
-                        <p className="text-sm text-gray-600 mt-1">{qa.answer.slice(0, 100)}...</p>
-                      </div>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ml-3 ${getCategoryColor(qa.category)}`}>
-                        {qa.category}
-                      </span>
-                    </div>
-                  </button>
-                ))}
+              {analysis.suggestedQuestions.map((qa, index) => (
+  <div
+    key={index}
+    onClick={() => handleSuggestedQuestion(qa)}
+    className="text-left p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all group relative cursor-pointer"
+  >
+    <div className="flex items-start justify-between">
+      <div className="flex-1 pr-4">
+        <p className="font-medium text-gray-900 group-hover:text-blue-700">{qa.question}</p>
+        <p className="text-sm text-gray-600 mt-1">{qa.answer.slice(0, 100)}...</p>
+      </div>
+      <div className="flex flex-col gap-2">
+        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(qa.category)}`}>
+          {qa.category}
+        </span>
+        <button
+  onClick={(e) => {
+    e.stopPropagation();
+    if (isSpeaking && speakingQuestionIndex === index) {
+      stopSpeaking();
+    } else {
+      speakText(qa.answer, null, index);
+    }
+  }}
+  disabled={loadingAudio[`question-${index}`]}
+  className={`p-2 rounded-lg transition-colors ${
+    loadingAudio[`question-${index}`]
+      ? 'bg-gray-100 text-gray-400 cursor-wait'
+      : isSpeaking && speakingQuestionIndex === index
+      ? 'bg-red-100 text-red-700 hover:bg-red-200'
+      : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+  }`}
+>
+  {loadingAudio[`question-${index}`] ? (
+    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+  ) : isSpeaking && speakingQuestionIndex === index ? (
+    <VolumeX className="w-4 h-4" />
+  ) : (
+    <Volume2 className="w-4 h-4" />
+  )}
+</button>
+      </div>
+    </div>
+  </div>
+))}
               </div>
             </div>
           )}
