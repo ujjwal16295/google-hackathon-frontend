@@ -693,6 +693,8 @@ const exportToDocx = async () => {
     }
   };
   const startNewChat = (initialQuestion, initialAnswer = null) => {
+    stopSpeaking(); // Stop any playing audio
+    
     const newChat = {
       id: chatCounter,
       title: `Chat ${chatCounter}`,
@@ -714,20 +716,19 @@ const exportToDocx = async () => {
     setActiveChat(newChat);
     setShowQAPopup(true);
     
-    // Increment counter and save it
     const newCounter = chatCounter + 1;
     setChatCounter(newCounter);
     sessionStorage.setItem('chatCounter', newCounter.toString());
     
-    // If no initial answer, ask the question
     if (!initialAnswer) {
       handleQuestionSubmit(true, initialQuestion);
     }
   };
   const openChatFromHistory = (chatId) => {
+    stopSpeaking(); // Stop any playing audio
     const chat = chatSessions.find(s => s.id === chatId);
     if (chat) {
-      setActiveChat({ ...chat, isViewOnly: true }); // Mark as view only
+      setActiveChat({ ...chat, isViewOnly: true });
       setShowQAPopup(true);
       setShowChatHistory(false);
     }
@@ -746,6 +747,7 @@ const exportToDocx = async () => {
     setPopupQuestionInput('');
   };
   const handleSuggestedQuestion = (suggestedQA) => {
+    stopSpeaking(); // Add this line to stop any playing audio
     setViewingSuggestedQA(suggestedQA);
   };
   if (!analysisResults) {
@@ -840,7 +842,10 @@ const QAPopup = () => {
             )}
           </div>
           <button
-            onClick={closeAndSaveChat}
+            onClick={() => {
+              stopSpeaking(); // Stop audio when closing popup
+              closeAndSaveChat();
+            }}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
             <X className="w-6 h-6" />
@@ -853,21 +858,62 @@ const QAPopup = () => {
               key={`msg-${index}`}
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <div
-                className={`max-w-[80%] rounded-lg p-4 ${
-                  message.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-900'
-                }`}
-              >
-                <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                <p
-                  className={`text-xs mt-2 ${
-                    message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
+              <div className="flex flex-col max-w-[80%]">
+                <div
+                  className={`rounded-lg p-4 ${
+                    message.role === 'user'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-900'
                   }`}
                 >
-                  {message.timestamp}
-                </p>
+                  <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                  <p
+                    className={`text-xs mt-2 ${
+                      message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
+                    }`}
+                  >
+                    {message.timestamp}
+                  </p>
+                </div>
+                
+                {/* Add voice button for assistant messages */}
+                {message.role === 'assistant' && (
+                  <button
+                    onClick={() => {
+                      const cacheKey = `chat-message-${activeChat.id}-${index}`;
+                      if (isSpeaking && speakingSection === cacheKey) {
+                        stopSpeaking();
+                      } else {
+                        speakText(message.content, cacheKey);
+                      }
+                    }}
+                    disabled={loadingAudio[`chat-message-${activeChat.id}-${index}`]}
+                    className={`self-start mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                      loadingAudio[`chat-message-${activeChat.id}-${index}`]
+                        ? 'bg-gray-100 text-gray-400 cursor-wait'
+                        : isSpeaking && speakingSection === `chat-message-${activeChat.id}-${index}`
+                        ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {loadingAudio[`chat-message-${activeChat.id}-${index}`] ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                        <span className="text-xs">Generating...</span>
+                      </>
+                    ) : isSpeaking && speakingSection === `chat-message-${activeChat.id}-${index}` ? (
+                      <>
+                        <VolumeX className="w-4 h-4" />
+                        <span className="text-xs">Stop</span>
+                      </>
+                    ) : (
+                      <>
+                        <Volume2 className="w-4 h-4" />
+                        <span className="text-xs">Listen</span>
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -1005,8 +1051,10 @@ const QAPopup = () => {
             ].map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
-                onClick={() => setActiveSection(id)}
-                className={`flex items-center px-6 py-4 font-semibold transition-colors whitespace-nowrap ${
+                onClick={() => {
+  stopSpeaking(); // Add this line
+  setActiveSection(id);
+}}                className={`flex items-center px-6 py-4 font-semibold transition-colors whitespace-nowrap ${
                   activeSection === id
                     ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600'
                     : 'text-gray-600 hover:text-blue-600'
@@ -1348,26 +1396,62 @@ const QAPopup = () => {
         </button>
       )}
 
-      {/* Show individual suggested Q&A */}
-      {viewingSuggestedQA ? (
-        <div>
-          <div className="mb-4">
-            <span className={`px-3 py-1 rounded-full text-sm font-medium ${getCategoryColor(viewingSuggestedQA.category)}`}>
-              {viewingSuggestedQA.category}
-            </span>
-          </div>
-          <div className="space-y-4">
-            <div className="p-4 bg-blue-50 rounded-lg">
-              <p className="text-sm font-medium text-gray-500 mb-2">Question</p>
-              <p className="text-gray-900 font-medium">{viewingSuggestedQA.question}</p>
-            </div>
-            <div className="p-4 bg-green-50 rounded-lg">
-              <p className="text-sm font-medium text-gray-500 mb-2">Answer</p>
-              <p className="text-gray-900">{viewingSuggestedQA.answer}</p>
-            </div>
-          </div>
-        </div>
-      ) : (
+{/* Show individual suggested Q&A */}
+{viewingSuggestedQA ? (
+  <div>
+    <div className="mb-4 flex items-center justify-between">
+      <span className={`px-3 py-1 rounded-full text-sm font-medium ${getCategoryColor(viewingSuggestedQA.category)}`}>
+        {viewingSuggestedQA.category}
+      </span>
+      {/* Add voice button here when viewing the full answer */}
+      <button
+        onClick={() => {
+          const cacheKey = `suggested-qa-${analysis.suggestedQuestions.findIndex(q => q.question === viewingSuggestedQA.question)}`;
+          if (isSpeaking && speakingSection === cacheKey) {
+            stopSpeaking();
+          } else {
+            speakText(viewingSuggestedQA.answer, cacheKey);
+          }
+        }}
+        disabled={loadingAudio[`suggested-qa-${analysis.suggestedQuestions.findIndex(q => q.question === viewingSuggestedQA.question)}`]}
+        className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+          loadingAudio[`suggested-qa-${analysis.suggestedQuestions.findIndex(q => q.question === viewingSuggestedQA.question)}`]
+            ? 'bg-gray-100 text-gray-400 cursor-wait'
+            : isSpeaking && speakingSection === `suggested-qa-${analysis.suggestedQuestions.findIndex(q => q.question === viewingSuggestedQA.question)}`
+            ? 'bg-red-100 text-red-700 hover:bg-red-200'
+            : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+        } disabled:opacity-50 disabled:cursor-not-allowed`}
+      >
+        {loadingAudio[`suggested-qa-${analysis.suggestedQuestions.findIndex(q => q.question === viewingSuggestedQA.question)}`] ? (
+          <>
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-600"></div>
+            Generating...
+          </>
+        ) : isSpeaking && speakingSection === `suggested-qa-${analysis.suggestedQuestions.findIndex(q => q.question === viewingSuggestedQA.question)}` ? (
+          <>
+            <VolumeX className="w-5 h-5" />
+            Stop
+          </>
+        ) : (
+          <>
+            <Volume2 className="w-5 h-5" />
+            Speak
+          </>
+        )}
+      </button>
+    </div>
+    <div className="space-y-4">
+      <div className="p-4 bg-blue-50 rounded-lg">
+        <p className="text-sm font-medium text-gray-500 mb-2">Question</p>
+        <p className="text-gray-900 font-medium">{viewingSuggestedQA.question}</p>
+      </div>
+      <div className="p-4 bg-green-50 rounded-lg">
+        <p className="text-sm font-medium text-gray-500 mb-2">Answer</p>
+        <p className="text-gray-900">{viewingSuggestedQA.answer}</p>
+      </div>
+    </div>
+  </div>
+) : (
         <>
           {/* Original Q&A interface */}
           <div className="flex justify-between items-center mb-6">
@@ -1423,61 +1507,37 @@ const QAPopup = () => {
           </div>
 
           {/* Suggested Questions */}
-          {analysis.suggestedQuestions && analysis.suggestedQuestions.length > 0 && (
-            <div className="mb-8">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                <HelpCircle className="w-5 h-5 mr-2" />
-                Suggested Questions (Click to view)
-              </h3>
-              <div className="grid gap-3">
-              {analysis.suggestedQuestions.map((qa, index) => (
-  <div
-    key={index}
-    onClick={() => handleSuggestedQuestion(qa)}
-    className="text-left p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all group relative cursor-pointer"
-  >
-    <div className="flex items-start justify-between">
-      <div className="flex-1 pr-4">
-        <p className="font-medium text-gray-900 group-hover:text-blue-700">{qa.question}</p>
-        <p className="text-sm text-gray-600 mt-1">{qa.answer.slice(0, 100)}...</p>
-      </div>
-      <div className="flex flex-col gap-2">
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(qa.category)}`}>
-          {qa.category}
-        </span>
-        <button
-  onClick={(e) => {
-    e.stopPropagation();
-    if (isSpeaking && speakingQuestionIndex === index) {
-      stopSpeaking();
-    } else {
-      speakText(qa.answer, null, index);
-    }
-  }}
-  disabled={loadingAudio[`question-${index}`]}
-  className={`p-2 rounded-lg transition-colors ${
-    loadingAudio[`question-${index}`]
-      ? 'bg-gray-100 text-gray-400 cursor-wait'
-      : isSpeaking && speakingQuestionIndex === index
-      ? 'bg-red-100 text-red-700 hover:bg-red-200'
-      : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-  }`}
->
-  {loadingAudio[`question-${index}`] ? (
-    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
-  ) : isSpeaking && speakingQuestionIndex === index ? (
-    <VolumeX className="w-4 h-4" />
-  ) : (
-    <Volume2 className="w-4 h-4" />
-  )}
-</button>
-      </div>
+{/* Suggested Questions */}
+{analysis.suggestedQuestions && analysis.suggestedQuestions.length > 0 && (
+  <div className="mb-8">
+    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+      <HelpCircle className="w-5 h-5 mr-2" />
+      Suggested Questions (Click to view)
+    </h3>
+    <div className="grid gap-3">
+      {analysis.suggestedQuestions.map((qa, index) => (
+        <div
+          key={index}
+          onClick={() => handleSuggestedQuestion(qa)}
+          className="text-left p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all group relative cursor-pointer"
+        >
+          <div className="flex items-start justify-between">
+            <div className="flex-1 pr-4">
+              <p className="font-medium text-gray-900 group-hover:text-blue-700">{qa.question}</p>
+              <p className="text-sm text-gray-600 mt-1">{qa.answer.slice(0, 100)}...</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(qa.category)}`}>
+                {qa.category}
+              </span>
+              {/* Removed the voice button from here */}
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   </div>
-))}
-              </div>
-            </div>
-          )}
+)}
 
           {/* Empty State */}
           {chatSessions.length === 0 && (
