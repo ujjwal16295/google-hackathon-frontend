@@ -168,8 +168,11 @@ const speakText = async (text, sectionName = null, questionIndex = null) => {
       const wavBlob = pcmToWav(result.audioData);
       const audioUrl = URL.createObjectURL(wavBlob);
       
-      // Cache immediately
+      // Cache immediately in state
       setAudioCache(prev => ({ ...prev, [cacheKey]: audioUrl }));
+      
+      // Also save to sessionStorage for persistence
+      saveAudioCache(cacheKey, audioUrl);
       
       const audio = new Audio(audioUrl);
       
@@ -236,7 +239,33 @@ const speakText = async (text, sectionName = null, questionIndex = null) => {
     });
   }
 };
-
+// Function to save audio cache to sessionStorage
+const saveAudioCache = async (cacheKey, audioUrl) => {
+  try {
+    // Fetch the blob from the URL
+    const response = await fetch(audioUrl);
+    const blob = await response.blob();
+    
+    // Convert blob to base64
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64data = reader.result.split(',')[1];
+      
+      // Get existing cache from sessionStorage
+      const existingCache = sessionStorage.getItem('audioCache');
+      const cacheObj = existingCache ? JSON.parse(existingCache) : {};
+      
+      // Add new audio data
+      cacheObj[cacheKey] = base64data;
+      
+      // Save back to sessionStorage
+      sessionStorage.setItem('audioCache', JSON.stringify(cacheObj));
+    };
+    reader.readAsDataURL(blob);
+  } catch (error) {
+    console.error('Error saving audio cache:', error);
+  }
+};
 // Function to stop speaking
 const stopSpeaking = () => {
   if (currentAudio) {
@@ -284,11 +313,37 @@ const getSectionText = (section) => {
   }
 };
 useEffect(() => {
+  // Load cached audio from sessionStorage on mount
+  const cachedAudioData = sessionStorage.getItem('audioCache');
+  if (cachedAudioData) {
+    try {
+      const parsed = JSON.parse(cachedAudioData);
+      // Reconstruct blob URLs from base64 data
+      const reconstructedCache = {};
+      Object.entries(parsed).forEach(([key, base64Data]) => {
+        try {
+          const byteString = atob(base64Data);
+          const bytes = new Uint8Array(byteString.length);
+          for (let i = 0; i < byteString.length; i++) {
+            bytes[i] = byteString.charCodeAt(i);
+          }
+          const blob = new Blob([bytes], { type: 'audio/wav' });
+          reconstructedCache[key] = URL.createObjectURL(blob);
+        } catch (e) {
+          console.error('Error reconstructing audio:', e);
+        }
+      });
+      setAudioCache(reconstructedCache);
+    } catch (error) {
+      console.error('Error loading cached audio:', error);
+    }
+  }
+
   return () => {
-    // Only cleanup on component unmount
+    // Only pause current audio on unmount, don't revoke URLs
     if (currentAudio) {
       currentAudio.pause();
-      currentAudio.src = '';
+      currentAudio.currentTime = 0;
     }
     
     // Cancel all ongoing requests
@@ -300,16 +355,9 @@ useEffect(() => {
       }
     });
     
-    // Revoke all cached audio URLs only on unmount
-    Object.values(audioCache).forEach(url => {
-      try {
-        URL.revokeObjectURL(url);
-      } catch (e) {
-        console.error('Error revoking URL:', e);
-      }
-    });
+    // DON'T revoke URLs on unmount anymore
   };
-}, []); // Empty dependency - only runs on unmount
+}, []);
 const exportToDocx = async () => {
   try {
     const doc = new Document({
@@ -582,12 +630,21 @@ const exportToDocx = async () => {
     }
   }, []);
   const startNewAnalysis = () => {
+    // Revoke all cached audio URLs before clearing
+    Object.values(audioCache).forEach(url => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        console.error('Error revoking URL:', e);
+      }
+    });
+    
     sessionStorage.removeItem('analysisResults');
     sessionStorage.removeItem('chatSessions');
     sessionStorage.removeItem('chatCounter');
+    sessionStorage.removeItem('audioCache'); // Add this line
     window.location.href = '/docupload';
   };
-
   const deleteChatSession = (chatId, e) => {
     e.stopPropagation();
     const updatedSessions = chatSessions.filter(s => s.id !== chatId);
