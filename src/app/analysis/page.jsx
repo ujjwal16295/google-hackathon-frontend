@@ -6,7 +6,120 @@ import { CheckCircle, AlertCircle, Shield, ArrowLeft, FileText, Users, Clock, Do
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle, Table, TableCell, TableRow, WidthType } from 'docx';
 import { saveAs } from 'file-saver';
 
+// IndexedDB Configuration
+const DB_NAME = 'LegalClearAudioCache';
+const DB_VERSION = 1;
+const STORE_NAME = 'audioCache';
+
+// Initialize IndexedDB
+const initDB = () => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'cacheKey' });
+      }
+    };
+  });
+};
+
+// Save audio to IndexedDB
+const saveAudioToIndexedDB = async (cacheKey, audioBlob) => {
+  try {
+    const db = await initDB();
+    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    
+    await store.put({ cacheKey, audioBlob, timestamp: Date.now() });
+    
+    return new Promise((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } catch (error) {
+    console.error('Error saving to IndexedDB:', error);
+  }
+};
+
+// Load audio from IndexedDB
+const loadAudioFromIndexedDB = async (cacheKey) => {
+  try {
+    const db = await initDB();
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(cacheKey);
+    
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        if (request.result) {
+          resolve(request.result.audioBlob);
+        } else {
+          resolve(null);
+        }
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } catch (error) {
+    console.error('Error loading from IndexedDB:', error);
+    return null;
+  }
+};
+
+// Load all cached audio on mount
+const loadAllCachedAudio = async () => {
+  try {
+    const db = await initDB();
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.getAll();
+    
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        const results = {};
+        request.result.forEach(item => {
+          const url = URL.createObjectURL(item.audioBlob);
+          results[item.cacheKey] = url;
+        });
+        resolve(results);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } catch (error) {
+    console.error('Error loading all cached audio:', error);
+    return {};
+  }
+};
+
+// Clear old cache (optional - call this to clean up)
+const clearOldCache = async (daysOld = 7) => {
+  try {
+    const db = await initDB();
+    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.openCursor();
+    const cutoffTime = Date.now() - (daysOld * 24 * 60 * 60 * 1000);
+    
+    request.onsuccess = (event) => {
+      const cursor = event.target.result;
+      if (cursor) {
+        if (cursor.value.timestamp < cutoffTime) {
+          cursor.delete();
+        }
+        cursor.continue();
+      }
+    };
+  } catch (error) {
+    console.error('Error clearing old cache:', error);
+  }
+};
+
 const AnalysisResultsPage = () => {
+
   const [chatCounter, setChatCounter] = useState(1);
   const [analysisResults, setAnalysisResults] = useState(null);
   const [activeSection, setActiveSection] = useState('summary');
@@ -27,6 +140,9 @@ const [speakingQuestionIndex, setSpeakingQuestionIndex] = useState(null);
 const [audioCache, setAudioCache] = useState({}); // Cache generated audio
 const [loadingAudio, setLoadingAudio] = useState({}); // Track loading state per section
 const [abortControllers, setAbortControllers] = useState({}); // Track abort controllers
+const inputCursorPos = useRef(null);
+const messagesContainerRef = useRef(null);
+
 
 // Function to convert PCM to WAV
 const pcmToWav = (base64PCM, sampleRate = 24000) => {
@@ -246,22 +362,9 @@ const saveAudioCache = async (cacheKey, audioUrl) => {
     const response = await fetch(audioUrl);
     const blob = await response.blob();
     
-    // Convert blob to base64
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64data = reader.result.split(',')[1];
-      
-      // Get existing cache from sessionStorage
-      const existingCache = sessionStorage.getItem('audioCache');
-      const cacheObj = existingCache ? JSON.parse(existingCache) : {};
-      
-      // Add new audio data
-      cacheObj[cacheKey] = base64data;
-      
-      // Save back to sessionStorage
-      sessionStorage.setItem('audioCache', JSON.stringify(cacheObj));
-    };
-    reader.readAsDataURL(blob);
+    // Save to IndexedDB
+    await saveAudioToIndexedDB(cacheKey, blob);
+    
   } catch (error) {
     console.error('Error saving audio cache:', error);
   }
@@ -313,31 +416,20 @@ const getSectionText = (section) => {
   }
 };
 useEffect(() => {
-  // Load cached audio from sessionStorage on mount
-  const cachedAudioData = sessionStorage.getItem('audioCache');
-  if (cachedAudioData) {
+  // Load cached audio from IndexedDB on mount
+  const loadCache = async () => {
     try {
-      const parsed = JSON.parse(cachedAudioData);
-      // Reconstruct blob URLs from base64 data
-      const reconstructedCache = {};
-      Object.entries(parsed).forEach(([key, base64Data]) => {
-        try {
-          const byteString = atob(base64Data);
-          const bytes = new Uint8Array(byteString.length);
-          for (let i = 0; i < byteString.length; i++) {
-            bytes[i] = byteString.charCodeAt(i);
-          }
-          const blob = new Blob([bytes], { type: 'audio/wav' });
-          reconstructedCache[key] = URL.createObjectURL(blob);
-        } catch (e) {
-          console.error('Error reconstructing audio:', e);
-        }
-      });
-      setAudioCache(reconstructedCache);
+      const cachedAudio = await loadAllCachedAudio();
+      setAudioCache(cachedAudio);
+      
+      // Optional: Clear old cache
+      await clearOldCache(7); // Clear cache older than 7 days
     } catch (error) {
       console.error('Error loading cached audio:', error);
     }
-  }
+  };
+  
+  loadCache();
 
   return () => {
     // Only pause current audio on unmount, don't revoke URLs
@@ -639,10 +731,26 @@ const exportToDocx = async () => {
       }
     });
     
+    // Clear IndexedDB cache
+    const clearIndexedDB = async () => {
+      try {
+        const db = await initDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        await store.clear();
+      } catch (error) {
+        console.error('Error clearing IndexedDB:', error);
+      }
+    };
+    
+    clearIndexedDB();
+    
     sessionStorage.removeItem('analysisResults');
     sessionStorage.removeItem('chatSessions');
     sessionStorage.removeItem('chatCounter');
-    sessionStorage.removeItem('audioCache'); // Add this line
+    // Remove this line since we're not using sessionStorage for audio anymore:
+    // sessionStorage.removeItem('audioCache');
+    
     window.location.href = '/docupload';
   };
   const deleteChatSession = (chatId, e) => {
@@ -674,8 +782,8 @@ const exportToDocx = async () => {
     };
     return colors[category] || 'bg-gray-100 text-gray-800';
   };
-  const handleQuestionSubmit = async (isFirstQuestion = false, initialQuestion = '') => {
-    const currentQuestion = isFirstQuestion ? initialQuestion : popupQuestionInput.trim();
+  const handleQuestionSubmit = async (isFirstQuestion = false, questionText = '') => {
+    const currentQuestion = questionText.trim();
     
     if (!currentQuestion) return;
   
@@ -691,6 +799,7 @@ const exportToDocx = async () => {
       messages: [...(prev?.messages || []), userMessage]
     }));
     
+    // Only clear popup input if it's NOT the first question
     if (!isFirstQuestion) {
       setPopupQuestionInput('');
     }
@@ -777,9 +886,11 @@ const exportToDocx = async () => {
     setChatCounter(newCounter);
     sessionStorage.setItem('chatCounter', newCounter.toString());
     
-    if (!initialAnswer) {
+    // Only submit question if there's an initial question and no answer
+    if (initialQuestion && !initialAnswer) {
       handleQuestionSubmit(true, initialQuestion);
     }
+    // If empty initial question, popup opens with empty chat ready for user input
   };
   const openChatFromHistory = (chatId) => {
     stopSpeaking(); // Stop any playing audio
@@ -881,12 +992,28 @@ const exportToDocx = async () => {
 const QAPopup = () => {
   const inputRef = useRef(null);
   const messagesEndRef = useRef(null);
-  
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeChat?.messages, isLoadingQuestion]);
-  
   const isViewOnly = activeChat?.isViewOnly;
+  
+  // Add useEffect to restore cursor position
+  useEffect(() => {
+    if (inputRef.current && inputCursorPos.current !== null) {
+      inputRef.current.setSelectionRange(inputCursorPos.current, inputCursorPos.current);
+      inputCursorPos.current = null;
+    }
+  }, [popupQuestionInput]);
+
+  const prevMessageCountRef = useRef(0);
+
+useEffect(() => {
+  const currentMessageCount = activeChat?.messages.length || 0;
+  
+  // Only scroll if a new message was added
+  if (currentMessageCount > prevMessageCountRef.current) {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }
+  
+  prevMessageCountRef.current = currentMessageCount;
+}, [activeChat?.messages]);
   
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -900,7 +1027,7 @@ const QAPopup = () => {
           </div>
           <button
             onClick={() => {
-              stopSpeaking(); // Stop audio when closing popup
+              stopSpeaking();
               closeAndSaveChat();
             }}
             className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -909,8 +1036,8 @@ const QAPopup = () => {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {activeChat?.messages.map((message, index) => (
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-6 space-y-4">
+                  {activeChat?.messages.map((message, index) => (
             <div
               key={`msg-${index}`}
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -933,7 +1060,6 @@ const QAPopup = () => {
                   </p>
                 </div>
                 
-                {/* Add voice button for assistant messages */}
                 {message.role === 'assistant' && (
                   <button
                     onClick={() => {
@@ -996,20 +1122,35 @@ const QAPopup = () => {
                 ref={inputRef}
                 type="text"
                 value={popupQuestionInput}
-                onChange={(e) => setPopupQuestionInput(e.target.value)}
+                onChange={(e) => {
+  const scrollPos = messagesContainerRef.current?.scrollTop;
+  inputCursorPos.current = e.target.selectionStart;
+  setPopupQuestionInput(e.target.value);
+  
+  // Restore scroll position after state update
+  requestAnimationFrame(() => {
+    if (messagesContainerRef.current && scrollPos !== undefined) {
+      messagesContainerRef.current.scrollTop = scrollPos;
+    }
+  });
+}}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    handleQuestionSubmit(false);
+                    handleQuestionSubmit(false, popupQuestionInput);
+                    setPopupQuestionInput('');
                   }
                 }}
-                placeholder="Ask a follow-up question..."
+                placeholder="Ask a question about your contract..."
                 className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                 disabled={isLoadingQuestion}
                 autoFocus
               />
               <button
-                onClick={() => handleQuestionSubmit(false)}
+                onClick={() => {
+                  handleQuestionSubmit(false, popupQuestionInput);
+                  setPopupQuestionInput('');
+                }}
                 disabled={!popupQuestionInput.trim() || isLoadingQuestion}
                 className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
               >
@@ -1437,7 +1578,6 @@ const QAPopup = () => {
   </div>
 )}
 
-            {/* Q&A Section */}
 {/* Q&A Section */}
 {activeSection === 'qna' && (
   <>
@@ -1521,49 +1661,23 @@ const QAPopup = () => {
               View History ({chatSessions.length})
             </button>
           </div>
-          
+   
           <div className="mb-6">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-              <p className="text-blue-800 text-sm">
-                <strong>How it works:</strong> Each question starts a new conversation. Ask follow-ups in the popup, 
-                and when you close it, the entire chat is saved to history. Each chat is independent.
-              </p>
-            </div>
-            
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={popupQuestionInput}
-                onChange={(e) => setPopupQuestionInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (popupQuestionInput.trim()) {
-                      startNewChat(popupQuestionInput.trim());
-                      setPopupQuestionInput('');
-                    }
-                  }
-                }}
-                placeholder="Ask about payment terms, termination clauses, liability, etc."
-                className="flex-1 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
-              />
-              <button
-                onClick={() => {
-                  if (popupQuestionInput.trim()) {
-                    startNewChat(popupQuestionInput.trim());
-                    setPopupQuestionInput('');
-                  }
-                }}
-                disabled={!popupQuestionInput.trim()}
-                className="bg-blue-600 text-white px-6 py-4 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-              >
-                <MessageCircle className="w-5 h-5 mr-2" />
-                Ask
-              </button>
-            </div>
-          </div>
-
-          {/* Suggested Questions */}
+  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+    <p className="text-blue-800 text-sm">
+      <strong>How it works:</strong> Click "Ask Question" to open a chat window. Ask follow-ups in the popup, 
+      and when you close it, the entire chat is saved to history. Each chat is independent.
+    </p>
+  </div>
+  
+  <button
+    onClick={() => startNewChat('')}
+    className="w-full bg-blue-600 text-white px-6 py-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center text-lg font-semibold"
+  >
+    <MessageCircle className="w-6 h-6 mr-3" />
+    Ask Question
+  </button>
+</div>
 {/* Suggested Questions */}
 {analysis.suggestedQuestions && analysis.suggestedQuestions.length > 0 && (
   <div className="mb-8">
