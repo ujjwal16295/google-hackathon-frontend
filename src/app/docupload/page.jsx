@@ -15,6 +15,64 @@ const DocumentUploadPage = () => {
   const [analysisMessage, setAnalysisMessage] = useState('');
   const fileInputRef = useRef(null);
 
+  // Clear all previous session data and IndexedDB
+const clearAllPreviousData = async () => {
+  try {
+    // Clear sessionStorage
+    sessionStorage.removeItem('analysisResults');
+    sessionStorage.removeItem('chatSessions');
+    sessionStorage.removeItem('chatCounter');
+    
+    // Clear IndexedDB
+    const DB_NAME = 'LegalClearAudioCache';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'audioCache';
+    
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    
+    return new Promise((resolve, reject) => {
+      request.onsuccess = (event) => {
+        const db = event.target.result;
+        
+        if (db.objectStoreNames.contains(STORE_NAME)) {
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
+          const clearRequest = store.clear();
+          
+          clearRequest.onsuccess = () => {
+            console.log('Previous analysis data cleared successfully');
+            db.close();
+            resolve();
+          };
+          
+          clearRequest.onerror = () => {
+            console.error('Error clearing IndexedDB');
+            db.close();
+            resolve(); // Still resolve to continue with analysis
+          };
+        } else {
+          db.close();
+          resolve();
+        }
+      };
+      
+      request.onerror = () => {
+        console.error('Error opening IndexedDB');
+        resolve(); // Still resolve to continue with analysis
+      };
+      
+      request.onupgradeneeded = (event) => {
+        // Database doesn't exist yet, just close and continue
+        event.target.result.close();
+        resolve();
+      };
+    });
+  } catch (error) {
+    console.error('Error clearing previous data:', error);
+    // Don't throw error, just continue with analysis
+  }
+};
+
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -119,44 +177,46 @@ const DocumentUploadPage = () => {
       alert('Please upload a document or paste contract text.');
       return;
     }
-
+  
     // Validate text input length
     if (activeTab === 'text' && textInput.trim().length < 100) {
       alert('Please provide at least 100 characters for meaningful analysis.');
       return;
     }
-
+  
+    // Clear all previous data before starting new analysis
+    await clearAllPreviousData();
+  
     setIsAnalyzing(true);
     setAnalysisProgress(0);
     
     const progressInterval = simulateAnalysisProgress();
-
+  
     let documentText = '';
-
-
+  
     try {
       const formData = new FormData();
       
       if (activeTab === 'upload' && uploadedFile) {
         formData.append('document', uploadedFile);
       } else if (activeTab === 'text' && textInput.trim()) {
-        documentText = textInput.trim();  // Store text input
+        documentText = textInput.trim();
         formData.append('text', textInput.trim());
       }
       
       // Add parties information
       formData.append('parties', JSON.stringify(parties));
-
+  
       const response = await fetch('https://googel-hackathon-backend.onrender.com/api/analyze-document', {
         method: 'POST',
         body: formData,
       });
-
+  
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || 'Analysis failed');
       }
-
+  
       const result = await response.json();
       
       if (result.success) {
@@ -172,7 +232,7 @@ const DocumentUploadPage = () => {
             ...result.metadata,
             parties: parties
           },
-          originalText: documentText  // ADD THIS LINE - store original contract text
+          originalText: documentText
         }));
         
         // Small delay to show completion, then redirect
@@ -183,7 +243,7 @@ const DocumentUploadPage = () => {
       } else {
         throw new Error(result.message || 'Analysis failed');
       }
-
+  
     } catch (error) {
       clearInterval(progressInterval);
       setIsAnalyzing(false);

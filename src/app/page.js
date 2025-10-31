@@ -114,9 +114,6 @@ const LegalAIHomepage = () => {
                   Upload Your Contract
                   <Upload className="ml-2 w-5 h-5" />
                 </a>
-                <button className="border-2 border-gray-300 text-gray-700 px-8 py-4 rounded-full text-lg font-semibold hover:border-blue-600 hover:text-blue-600 transition-all duration-300">
-                  Watch Demo
-                </button>
               </div>
               <div className="flex flex-wrap gap-4">
                 {benefits.map((benefit, index) => (
