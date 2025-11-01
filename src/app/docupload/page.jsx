@@ -22,51 +22,6 @@ const clearAllPreviousData = async () => {
     sessionStorage.removeItem('analysisResults');
     sessionStorage.removeItem('chatSessions');
     sessionStorage.removeItem('chatCounter');
-    
-    // Clear IndexedDB
-    const DB_NAME = 'LegalClearAudioCache';
-    const DB_VERSION = 1;
-    const STORE_NAME = 'audioCache';
-    
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    
-    return new Promise((resolve, reject) => {
-      request.onsuccess = (event) => {
-        const db = event.target.result;
-        
-        if (db.objectStoreNames.contains(STORE_NAME)) {
-          const transaction = db.transaction([STORE_NAME], 'readwrite');
-          const store = transaction.objectStore(STORE_NAME);
-          const clearRequest = store.clear();
-          
-          clearRequest.onsuccess = () => {
-            console.log('Previous analysis data cleared successfully');
-            db.close();
-            resolve();
-          };
-          
-          clearRequest.onerror = () => {
-            console.error('Error clearing IndexedDB');
-            db.close();
-            resolve(); // Still resolve to continue with analysis
-          };
-        } else {
-          db.close();
-          resolve();
-        }
-      };
-      
-      request.onerror = () => {
-        console.error('Error opening IndexedDB');
-        resolve(); // Still resolve to continue with analysis
-      };
-      
-      request.onupgradeneeded = (event) => {
-        // Database doesn't exist yet, just close and continue
-        event.target.result.close();
-        resolve();
-      };
-    });
   } catch (error) {
     console.error('Error clearing previous data:', error);
     // Don't throw error, just continue with analysis

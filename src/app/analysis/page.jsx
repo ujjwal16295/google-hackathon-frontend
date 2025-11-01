@@ -6,117 +6,7 @@ import { CheckCircle, AlertCircle, Shield, ArrowLeft, FileText, Users, Clock, Do
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle, Table, TableCell, TableRow, WidthType } from 'docx';
 import { saveAs } from 'file-saver';
 
-// IndexedDB Configuration
-const DB_NAME = 'LegalClearAudioCache';
-const DB_VERSION = 1;
-const STORE_NAME = 'audioCache';
 
-// Initialize IndexedDB
-const initDB = () => {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-    
-    request.onupgradeneeded = (event) => {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'cacheKey' });
-      }
-    };
-  });
-};
-
-// Save audio to IndexedDB
-const saveAudioToIndexedDB = async (cacheKey, audioBlob) => {
-  try {
-    const db = await initDB();
-    const transaction = db.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    
-    await store.put({ cacheKey, audioBlob, timestamp: Date.now() });
-    
-    return new Promise((resolve, reject) => {
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
-    });
-  } catch (error) {
-    console.error('Error saving to IndexedDB:', error);
-  }
-};
-
-// Load audio from IndexedDB
-const loadAudioFromIndexedDB = async (cacheKey) => {
-  try {
-    const db = await initDB();
-    const transaction = db.transaction([STORE_NAME], 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.get(cacheKey);
-    
-    return new Promise((resolve, reject) => {
-      request.onsuccess = () => {
-        if (request.result) {
-          resolve(request.result.audioBlob);
-        } else {
-          resolve(null);
-        }
-      };
-      request.onerror = () => reject(request.error);
-    });
-  } catch (error) {
-    console.error('Error loading from IndexedDB:', error);
-    return null;
-  }
-};
-
-// Load all cached audio on mount
-const loadAllCachedAudio = async () => {
-  try {
-    const db = await initDB();
-    const transaction = db.transaction([STORE_NAME], 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.getAll();
-    
-    return new Promise((resolve, reject) => {
-      request.onsuccess = () => {
-        const results = {};
-        request.result.forEach(item => {
-          const url = URL.createObjectURL(item.audioBlob);
-          results[item.cacheKey] = url;
-        });
-        resolve(results);
-      };
-      request.onerror = () => reject(request.error);
-    });
-  } catch (error) {
-    console.error('Error loading all cached audio:', error);
-    return {};
-  }
-};
-
-// Clear old cache (optional - call this to clean up)
-const clearOldCache = async (daysOld = 7) => {
-  try {
-    const db = await initDB();
-    const transaction = db.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.openCursor();
-    const cutoffTime = Date.now() - (daysOld * 24 * 60 * 60 * 1000);
-    
-    request.onsuccess = (event) => {
-      const cursor = event.target.result;
-      if (cursor) {
-        if (cursor.value.timestamp < cutoffTime) {
-          cursor.delete();
-        }
-        cursor.continue();
-      }
-    };
-  } catch (error) {
-    console.error('Error clearing old cache:', error);
-  }
-};
 
 const AnalysisResultsPage = () => {
 
@@ -137,261 +27,92 @@ const [currentAudio, setCurrentAudio] = useState(null);
 const [speakingSection, setSpeakingSection] = useState(null);
 const [speakingQuestionIndex, setSpeakingQuestionIndex] = useState(null);
 // Add these new states near your other useState declarations
-const [audioCache, setAudioCache] = useState({}); // Cache generated audio
-const [loadingAudio, setLoadingAudio] = useState({}); // Track loading state per section
-const [abortControllers, setAbortControllers] = useState({}); // Track abort controllers
+
 const inputCursorPos = useRef(null);
 const messagesContainerRef = useRef(null);
 
 
-// Function to convert PCM to WAV
-const pcmToWav = (base64PCM, sampleRate = 24000) => {
-  const pcmData = atob(base64PCM);
-  const samples = new Int16Array(pcmData.length / 2);
+
+const speakText = (text, sectionName = null, questionIndex = null) => {
+  const cacheKey = sectionName || `question-${questionIndex}`;
   
-  for (let i = 0; i < samples.length; i++) {
-    samples[i] = (pcmData.charCodeAt(i * 2) | (pcmData.charCodeAt(i * 2 + 1) << 8));
+  // If already speaking this section, stop it
+  if (isSpeaking && speakingSection === cacheKey) {
+    stopSpeaking();
+    return;
   }
   
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buffer);
+  // Stop any currently playing speech
+  window.speechSynthesis.cancel();
   
-  // WAV header
-  const writeString = (offset, string) => {
-    for (let i = 0; i < string.length; i++) {
-      view.setUint8(offset + i, string.charCodeAt(i));
-    }
+  // Create speech utterance
+  const utterance = new SpeechSynthesisUtterance(text);
+  
+  // Configure voice settings
+  utterance.rate = 0.9; // Slightly slower for clarity
+  utterance.pitch = 1;
+  utterance.volume = 1;
+  
+  // Try to use a good English voice if available
+  const voices = window.speechSynthesis.getVoices();
+  const englishVoice = voices.find(voice => 
+    voice.lang.startsWith('en-') && voice.name.includes('Google')
+  ) || voices.find(voice => voice.lang.startsWith('en-'));
+  
+  if (englishVoice) {
+    utterance.voice = englishVoice;
+  }
+  
+  // Set up event handlers
+  utterance.onstart = () => {
+    setIsSpeaking(true);
+    setSpeakingSection(cacheKey);
+    setSpeakingQuestionIndex(questionIndex);
   };
   
-  writeString(0, 'RIFF');
-  view.setUint32(4, 36 + samples.length * 2, true);
-  writeString(8, 'WAVE');
-  writeString(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeString(36, 'data');
-  view.setUint32(40, samples.length * 2, true);
-  
-  const offset = 44;
-  for (let i = 0; i < samples.length; i++) {
-    view.setInt16(offset + i * 2, samples[i], true);
-  }
-  
-  return new Blob([buffer], { type: 'audio/wav' });
-};
-
-// Function to generate speech from text
-const speakText = async (text, sectionName = null, questionIndex = null) => {
-  try {
-    const cacheKey = sectionName || `question-${questionIndex}`;
-    
-    // If already speaking this section, stop it
-    if (isSpeaking && speakingSection === sectionName && speakingQuestionIndex === questionIndex) {
-      stopSpeaking();
-      return;
-    }
-    
-    // Stop any currently playing audio (but don't revoke URLs)
-    if (currentAudio) {
-      currentAudio.pause();
-      currentAudio.currentTime = 0;
-    }
-    
-    // Cancel any ongoing requests
-    if (abortControllers[cacheKey]) {
-      abortControllers[cacheKey].abort();
-    }
-    
-    // Check cache first
-    if (audioCache[cacheKey]) {
-      console.log('Playing cached audio for:', cacheKey);
-      const audio = new Audio(audioCache[cacheKey]);
-      
-      audio.oncanplaythrough = () => {
-        console.log('Cached audio ready to play');
-      };
-      
-      audio.onended = () => {
-        setIsSpeaking(false);
-        setSpeakingSection(null);
-        setSpeakingQuestionIndex(null);
-      };
-      
-      audio.onerror = (e) => {
-        console.error('Error with cached audio, will regenerate');
-        // Clear bad cache and regenerate
-        setAudioCache(prev => {
-          const newCache = { ...prev };
-          if (newCache[cacheKey]) {
-            URL.revokeObjectURL(newCache[cacheKey]);
-            delete newCache[cacheKey];
-          }
-          return newCache;
-        });
-        // Retry by calling speakText again
-        setTimeout(() => speakText(text, sectionName, questionIndex), 100);
-      };
-      
-      setCurrentAudio(audio);
-      setIsSpeaking(true);
-      setSpeakingSection(sectionName);
-      setSpeakingQuestionIndex(questionIndex);
-      
-      audio.play().catch(err => {
-        console.error('Error playing cached audio:', err);
-        setIsSpeaking(false);
-        setSpeakingSection(null);
-        setSpeakingQuestionIndex(null);
-      });
-      
-      return;
-    }
-    
-    // Show loading state
-    setLoadingAudio(prev => ({ ...prev, [cacheKey]: true }));
-    
-    // Create abort controller for this request
-    const controller = new AbortController();
-    setAbortControllers(prev => ({ ...prev, [cacheKey]: controller }));
-    
-    console.log('Generating new audio for:', cacheKey);
-    const response = await fetch('https://googel-hackathon-backend.onrender.com/api/text-to-speech', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        text: text.slice(0, 900),
-        voiceName: 'Puck',
-        stylePrompt: 'Read this legal text clearly and professionally'
-      }),
-      signal: controller.signal
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const result = await response.json();
-    
-    if (result.success && result.audioData) {
-      console.log('Audio data received, converting to WAV');
-      const wavBlob = pcmToWav(result.audioData);
-      const audioUrl = URL.createObjectURL(wavBlob);
-      
-      // Cache immediately in state
-      setAudioCache(prev => ({ ...prev, [cacheKey]: audioUrl }));
-      
-      // Also save to sessionStorage for persistence
-      saveAudioCache(cacheKey, audioUrl);
-      
-      const audio = new Audio(audioUrl);
-      
-      audio.oncanplaythrough = () => {
-        console.log('New audio ready to play');
-      };
-      
-      audio.onended = () => {
-        console.log('Audio playback ended');
-        setIsSpeaking(false);
-        setSpeakingSection(null);
-        setSpeakingQuestionIndex(null);
-      };
-      
-      audio.onerror = (e) => {
-        console.error('Error playing new audio:', e);
-        setIsSpeaking(false);
-        setSpeakingSection(null);
-        setSpeakingQuestionIndex(null);
-        // Remove from cache if it fails
-        setAudioCache(prev => {
-          const newCache = { ...prev };
-          if (newCache[cacheKey]) {
-            URL.revokeObjectURL(newCache[cacheKey]);
-            delete newCache[cacheKey];
-          }
-          return newCache;
-        });
-      };
-      
-      setCurrentAudio(audio);
-      setIsSpeaking(true);
-      setSpeakingSection(sectionName);
-      setSpeakingQuestionIndex(questionIndex);
-      
-      audio.play().catch(err => {
-        console.error('Error starting playback:', err);
-        setIsSpeaking(false);
-        setSpeakingSection(null);
-        setSpeakingQuestionIndex(null);
-      });
-      
-    } else {
-      throw new Error(result.error || 'No audio data received');
-    }
-    
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      console.log('Speech generation cancelled');
-      return;
-    }
-    console.error('Error generating speech:', error);
-    alert('Error generating speech: ' + error.message);
+  utterance.onend = () => {
     setIsSpeaking(false);
     setSpeakingSection(null);
     setSpeakingQuestionIndex(null);
-  } finally {
-    const cacheKey = sectionName || `question-${questionIndex}`;
-    setLoadingAudio(prev => ({ ...prev, [cacheKey]: false }));
-    setAbortControllers(prev => {
-      const newControllers = { ...prev };
-      delete newControllers[cacheKey];
-      return newControllers;
-    });
-  }
+  };
+  
+  utterance.onerror = (event) => {
+    console.error('Speech synthesis error:', event);
+    setIsSpeaking(false);
+    setSpeakingSection(null);
+    setSpeakingQuestionIndex(null);
+  };
+  
+  // Speak
+  window.speechSynthesis.speak(utterance);
 };
-// Function to save audio cache to sessionStorage
-const saveAudioCache = async (cacheKey, audioUrl) => {
-  try {
-    // Fetch the blob from the URL
-    const response = await fetch(audioUrl);
-    const blob = await response.blob();
-    
-    // Save to IndexedDB
-    await saveAudioToIndexedDB(cacheKey, blob);
-    
-  } catch (error) {
-    console.error('Error saving audio cache:', error);
-  }
-};
+
 // Function to stop speaking
 const stopSpeaking = () => {
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio.currentTime = 0;
-    // Don't set src to empty or revoke URL - keep it cached
-  }
-  
-  // Cancel all ongoing requests
-  Object.values(abortControllers).forEach(controller => {
-    try {
-      controller.abort();
-    } catch (e) {
-      // Already aborted
-    }
-  });
-  
+  window.speechSynthesis.cancel();
   setIsSpeaking(false);
   setSpeakingSection(null);
   setSpeakingQuestionIndex(null);
-  setAbortControllers({});
   setCurrentAudio(null);
 };
+
+useEffect(() => {
+  // Load voices (needed for some browsers)
+  const loadVoices = () => {
+    window.speechSynthesis.getVoices();
+  };
+  
+  loadVoices();
+  
+  if (window.speechSynthesis.onvoiceschanged !== undefined) {
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+  }
+  
+  // Cleanup on unmount
+  return () => {
+    window.speechSynthesis.cancel();
+  };
+}, []);
 
 // Function to get section text content
 const getSectionText = (section) => {
@@ -415,41 +136,7 @@ const getSectionText = (section) => {
       return '';
   }
 };
-useEffect(() => {
-  // Load cached audio from IndexedDB on mount
-  const loadCache = async () => {
-    try {
-      const cachedAudio = await loadAllCachedAudio();
-      setAudioCache(cachedAudio);
-      
-      // Optional: Clear old cache
-      await clearOldCache(7); // Clear cache older than 7 days
-    } catch (error) {
-      console.error('Error loading cached audio:', error);
-    }
-  };
-  
-  loadCache();
 
-  return () => {
-    // Only pause current audio on unmount, don't revoke URLs
-    if (currentAudio) {
-      currentAudio.pause();
-      currentAudio.currentTime = 0;
-    }
-    
-    // Cancel all ongoing requests
-    Object.values(abortControllers).forEach(controller => {
-      try {
-        controller.abort();
-      } catch (e) {
-        // Already aborted
-      }
-    });
-    
-    // DON'T revoke URLs on unmount anymore
-  };
-}, []);
 const exportToDocx = async () => {
   try {
     const doc = new Document({
@@ -722,34 +409,12 @@ const exportToDocx = async () => {
     }
   }, []);
   const startNewAnalysis = () => {
-    // Revoke all cached audio URLs before clearing
-    Object.values(audioCache).forEach(url => {
-      try {
-        URL.revokeObjectURL(url);
-      } catch (e) {
-        console.error('Error revoking URL:', e);
-      }
-    });
-    
-    // Clear IndexedDB cache
-    const clearIndexedDB = async () => {
-      try {
-        const db = await initDB();
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        await store.clear();
-      } catch (error) {
-        console.error('Error clearing IndexedDB:', error);
-      }
-    };
-    
-    clearIndexedDB();
+    // Stop any speaking
+    window.speechSynthesis.cancel();
     
     sessionStorage.removeItem('analysisResults');
     sessionStorage.removeItem('chatSessions');
     sessionStorage.removeItem('chatCounter');
-    // Remove this line since we're not using sessionStorage for audio anymore:
-    // sessionStorage.removeItem('audioCache');
     
     window.location.href = '/docupload';
   };
@@ -1070,21 +735,13 @@ useEffect(() => {
                         speakText(message.content, cacheKey);
                       }
                     }}
-                    disabled={loadingAudio[`chat-message-${activeChat.id}-${index}`]}
                     className={`self-start mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                      loadingAudio[`chat-message-${activeChat.id}-${index}`]
-                        ? 'bg-gray-100 text-gray-400 cursor-wait'
-                        : isSpeaking && speakingSection === `chat-message-${activeChat.id}-${index}`
+        isSpeaking && speakingSection === `chat-message-${activeChat.id}-${index}`
                         ? 'bg-red-100 text-red-700 hover:bg-red-200'
                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     }`}
                   >
-                    {loadingAudio[`chat-message-${activeChat.id}-${index}`] ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
-                        <span className="text-xs">Generating...</span>
-                      </>
-                    ) : isSpeaking && speakingSection === `chat-message-${activeChat.id}-${index}` ? (
+                    {isSpeaking && speakingSection === `chat-message-${activeChat.id}-${index}` ? (
                       <>
                         <VolumeX className="w-4 h-4" />
                         <span className="text-xs">Stop</span>
@@ -1283,21 +940,13 @@ useEffect(() => {
       speakText(getSectionText('summary'), 'summary');
     }
   }}
-  disabled={loadingAudio['summary']}
   className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-    loadingAudio['summary']
-      ? 'bg-gray-100 text-gray-400 cursor-wait'
-      : isSpeaking && speakingSection === 'summary'
+    isSpeaking && speakingSection === 'summary'
       ? 'bg-red-100 text-red-700 hover:bg-red-200'
       : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-  } disabled:opacity-50 disabled:cursor-not-allowed`}
+  }`}
 >
-  {loadingAudio['summary'] ? (
-    <>
-      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-600"></div>
-      Generating...
-    </>
-  ) : isSpeaking && speakingSection === 'summary' ? (
+  {isSpeaking && speakingSection === 'summary' ? (
     <>
       <VolumeX className="w-5 h-5" />
       Stop
@@ -1353,21 +1002,13 @@ useEffect(() => {
       speakText(getSectionText('risks'), 'risks');
     }
   }}
-  disabled={loadingAudio['risks']}
   className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-    loadingAudio['risks']
-      ? 'bg-gray-100 text-gray-400 cursor-wait'
-      : isSpeaking && speakingSection === 'risks'
+isSpeaking && speakingSection === 'risks'
       ? 'bg-red-100 text-red-700 hover:bg-red-200'
       : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-  } disabled:opacity-50 disabled:cursor-not-allowed`}
+  } `}
 >
-  {loadingAudio['risks'] ? (
-    <>
-      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-600"></div>
-      Generating...
-    </>
-  ) : isSpeaking && speakingSection === 'risks' ? (
+  {isSpeaking && speakingSection === 'risks' ? (
     <>
       <VolumeX className="w-5 h-5" />
       Stop
@@ -1468,21 +1109,13 @@ useEffect(() => {
       speakText(getSectionText('terms'), 'terms');
     }
   }}
-  disabled={loadingAudio['terms']}
   className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-    loadingAudio['terms']
-      ? 'bg-gray-100 text-gray-400 cursor-wait'
-      : isSpeaking && speakingSection === 'terms'
+   isSpeaking && speakingSection === 'terms'
       ? 'bg-red-100 text-red-700 hover:bg-red-200'
       : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-  } disabled:opacity-50 disabled:cursor-not-allowed`}
+  } `}
 >
-  {loadingAudio['terms'] ? (
-    <>
-      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-600"></div>
-      Generating...
-    </>
-  ) : isSpeaking && speakingSection === 'terms' ? (
+  { isSpeaking && speakingSection === 'terms' ? (
     <>
       <VolumeX className="w-5 h-5" />
       Stop
@@ -1610,21 +1243,13 @@ useEffect(() => {
             speakText(viewingSuggestedQA.answer, cacheKey);
           }
         }}
-        disabled={loadingAudio[`suggested-qa-${analysis.suggestedQuestions.findIndex(q => q.question === viewingSuggestedQA.question)}`]}
         className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-          loadingAudio[`suggested-qa-${analysis.suggestedQuestions.findIndex(q => q.question === viewingSuggestedQA.question)}`]
-            ? 'bg-gray-100 text-gray-400 cursor-wait'
-            : isSpeaking && speakingSection === `suggested-qa-${analysis.suggestedQuestions.findIndex(q => q.question === viewingSuggestedQA.question)}`
+      isSpeaking && speakingSection === `suggested-qa-${analysis.suggestedQuestions.findIndex(q => q.question === viewingSuggestedQA.question)}`
             ? 'bg-red-100 text-red-700 hover:bg-red-200'
             : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-        } disabled:opacity-50 disabled:cursor-not-allowed`}
+        }`}
       >
-        {loadingAudio[`suggested-qa-${analysis.suggestedQuestions.findIndex(q => q.question === viewingSuggestedQA.question)}`] ? (
-          <>
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-600"></div>
-            Generating...
-          </>
-        ) : isSpeaking && speakingSection === `suggested-qa-${analysis.suggestedQuestions.findIndex(q => q.question === viewingSuggestedQA.question)}` ? (
+        {isSpeaking && speakingSection === `suggested-qa-${analysis.suggestedQuestions.findIndex(q => q.question === viewingSuggestedQA.question)}` ? (
           <>
             <VolumeX className="w-5 h-5" />
             Stop
