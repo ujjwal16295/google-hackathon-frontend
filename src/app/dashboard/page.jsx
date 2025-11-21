@@ -8,10 +8,7 @@ import {
   User, 
   Calendar, 
   AlertCircle,
-  CheckCircle,
   Eye,
-  Search,
-  Filter,
   Loader2
 } from 'lucide-react';
 
@@ -24,8 +21,6 @@ const DashboardPage = () => {
   const [savedAnalyses, setSavedAnalyses] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterRisk, setFilterRisk] = useState('all');
 
   useEffect(() => {
     checkAuthAndLoadData();
@@ -107,74 +102,78 @@ const DashboardPage = () => {
     }
   };
 
-  const handleViewAnalysis = (analysisData) => {
+  const handleViewAnalysis = (item) => {
     try {
-      // Clear any existing session data first
+      // Clear previous session data
       sessionStorage.removeItem('analysisResults');
       sessionStorage.removeItem('chatSessions');
       sessionStorage.removeItem('chatCounter');
       
-      // Prepare the complete analysis data structure
+      console.log('Loading saved analysis:', item);
+      
+      // The item structure from Supabase is:
+      // { email, serial, data: { analysis, metadata, originalText, chatSessions, chatCounter, savedAt }, created_at }
+      if (!item.data) {
+        throw new Error('No data found in saved analysis');
+      }
+      
+      const savedData = JSON.parse(item.data);
+
+  
+      
+      if (!savedData.analysis) {
+        throw new Error('Analysis data is missing');
+      }
+      
+      // Structure exactly as the analysis page expects
       const analysisResults = {
-        analysis: analysisData.data.analysis,
-        metadata: analysisData.data.metadata,
-        originalText: analysisData.data.originalText,
-        // Mark this as loaded from saved data
+        analysis: savedData.analysis,
+        metadata: savedData.metadata || {
+          source: 'saved',
+          processedAt: item.created_at,
+          contentLength: savedData.originalText ? savedData.originalText.length : 0,
+          model: 'gemini-2.5-flash',
+          parties: {}
+        },
+        originalText: savedData.originalText || '',
         isLoadedFromSave: true,
-        savedSerial: analysisData.serial,
-        savedAt: analysisData.created_at
+        savedSerial: item.serial,
+        savedAt: item.created_at
       };
       
-      // Store in sessionStorage
+      console.log('Structured analysis for session storage:', analysisResults);
+      
+      // Save to sessionStorage
       sessionStorage.setItem('analysisResults', JSON.stringify(analysisResults));
       
-      // Restore chat sessions if they exist
-      if (analysisData.data.chatSessions) {
-        sessionStorage.setItem('chatSessions', JSON.stringify(analysisData.data.chatSessions));
+      // Load chat sessions if they exist
+      if (savedData.chatSessions && Array.isArray(savedData.chatSessions)) {
+        sessionStorage.setItem('chatSessions', JSON.stringify(savedData.chatSessions));
+      } else {
+        sessionStorage.setItem('chatSessions', JSON.stringify([]));
       }
       
-      // Restore chat counter if it exists
-      if (analysisData.data.chatCounter) {
-        sessionStorage.setItem('chatCounter', analysisData.data.chatCounter.toString());
-      }
+      // Load chat counter
+      const counter = savedData.chatCounter || 1;
+      sessionStorage.setItem('chatCounter', counter.toString());
+      
+      console.log('Successfully loaded analysis, redirecting to /analysis');
       
       // Redirect to analysis page
       window.location.href = '/analysis';
+      
     } catch (error) {
       console.error('Error viewing analysis:', error);
-      alert('Failed to load analysis. Please try again.');
+      console.error('Item data:', item);
+      alert('Failed to load analysis: ' + error.message + '\n\nPlease try again or contact support if the issue persists.');
     }
   };
 
-  const getRiskColor = (riskScore) => {
-    if (riskScore >= 70) return 'text-green-600 bg-green-50';
-    if (riskScore >= 40) return 'text-yellow-600 bg-yellow-50';
-    return 'text-red-600 bg-red-50';
-  };
 
-  const getRiskText = (riskScore) => {
-    if (riskScore >= 70) return 'Low Risk';
-    if (riskScore >= 40) return 'Medium Risk';
-    return 'High Risk';
-  };
 
   const getDocumentTitle = (data) => {
     return data?.data?.analysis?.summary?.documentType || 'Legal Document';
   };
-
-  const filteredAnalyses = savedAnalyses.filter(item => {
-    const matchesSearch = searchQuery === '' || 
-      getDocumentTitle(item).toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.data?.analysis?.summary?.mainPurpose?.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const riskScore = item.data?.analysis?.riskAssessment?.riskScore || 0;
-    const matchesFilter = filterRisk === 'all' ||
-      (filterRisk === 'low' && riskScore >= 70) ||
-      (filterRisk === 'medium' && riskScore >= 40 && riskScore < 70) ||
-      (filterRisk === 'high' && riskScore < 40);
-    
-    return matchesSearch && matchesFilter;
-  });
 
   if (isLoading) {
     return (
@@ -237,9 +236,9 @@ const DashboardPage = () => {
           </p>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white rounded-xl shadow-lg p-6">
+        {/* Stats Card - Total Analyses Only */}
+        <div className="mb-8">
+          <div className="bg-white rounded-xl shadow-lg p-6 max-w-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-600 text-sm">Total Analyses</p>
@@ -250,91 +249,29 @@ const DashboardPage = () => {
               </div>
             </div>
           </div>
-
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm">High Risk Documents</p>
-                <p className="text-3xl font-bold text-red-600">
-                  {savedAnalyses.filter(a => a.data?.analysis?.riskAssessment?.riskScore < 40).length}
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
-                <AlertCircle className="w-6 h-6 text-red-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm">Low Risk Documents</p>
-                <p className="text-3xl font-bold text-green-600">
-                  {savedAnalyses.filter(a => a.data?.analysis?.riskAssessment?.riskScore >= 70).length}
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-green-600" />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Search and Filter */}
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search by document type or purpose..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
-              />
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <Filter className="w-5 h-5 text-gray-400" />
-              <select
-                value={filterRisk}
-                onChange={(e) => setFilterRisk(e.target.value)}
-                className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
-              >
-                <option value="all">All Risk Levels</option>
-                <option value="low">Low Risk</option>
-                <option value="medium">Medium Risk</option>
-                <option value="high">High Risk</option>
-              </select>
-            </div>
-          </div>
         </div>
 
         {/* Analyses List */}
-        {filteredAnalyses.length === 0 ? (
+        {savedAnalyses.length === 0 ? (
           <div className="bg-white rounded-xl shadow-lg p-12 text-center">
             <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              {savedAnalyses.length === 0 ? 'No Saved Analyses Yet' : 'No Results Found'}
+              No Saved Analyses Yet
             </h3>
             <p className="text-gray-600 mb-6">
-              {savedAnalyses.length === 0 
-                ? 'Start by analyzing your first legal document'
-                : 'Try adjusting your search or filter criteria'}
+              Start by analyzing your first legal document
             </p>
-            {savedAnalyses.length === 0 && (
-              <a
-                href="/docupload"
-                className="inline-flex items-center bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <FileText className="w-5 h-5 mr-2" />
-                Analyze Your First Document
-              </a>
-            )}
+            <a
+              href="/docupload"
+              className="inline-flex items-center bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <FileText className="w-5 h-5 mr-2" />
+              Analyze Your First Document
+            </a>
           </div>
         ) : (
           <div className="grid gap-6">
-            {filteredAnalyses.map((item) => {
+            {savedAnalyses.map((item) => {
               const riskScore = item.data?.analysis?.riskAssessment?.riskScore || 0;
               const summary = item.data?.analysis?.summary;
               const createdDate = new Date(item.created_at).toLocaleDateString('en-US', {
@@ -355,17 +292,11 @@ const DashboardPage = () => {
                   <div className="p-6">
                     <div className="flex justify-between items-start mb-4">
                       <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
+                        <div className="mb-2">
                           <h3 className="text-xl font-bold text-gray-900">
                             {getDocumentTitle(item)}
                           </h3>
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getRiskColor(riskScore)}`}>
-                            {getRiskText(riskScore)} ({riskScore}/100)
-                          </span>
                         </div>
-                        <p className="text-gray-600 mb-3 line-clamp-2">
-                          {summary?.mainPurpose || 'No description available'}
-                        </p>
                         <div className="flex items-center gap-4 text-sm text-gray-500">
                           <span className="flex items-center">
                             <Calendar className="w-4 h-4 mr-1" />
@@ -375,12 +306,6 @@ const DashboardPage = () => {
                             <FileText className="w-4 h-4 mr-1" />
                             Serial: {item.serial}
                           </span>
-                          {chatCount > 0 && (
-                            <span className="flex items-center text-blue-600">
-                              <Eye className="w-4 h-4 mr-1" />
-                              {chatCount} Q&A session{chatCount > 1 ? 's' : ''}
-                            </span>
-                          )}
                         </div>
                       </div>
 
@@ -409,28 +334,6 @@ const DashboardPage = () => {
                         </button>
                       </div>
                     </div>
-
-                    {/* Key Highlights */}
-                    {summary?.keyHighlights && summary.keyHighlights.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-gray-100">
-                        <p className="text-sm font-semibold text-gray-700 mb-2">Key Highlights:</p>
-                        <div className="flex flex-wrap gap-2">
-                          {summary.keyHighlights.slice(0, 3).map((highlight, idx) => (
-                            <span
-                              key={idx}
-                              className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-xs"
-                            >
-                              {highlight}
-                            </span>
-                          ))}
-                          {summary.keyHighlights.length > 3 && (
-                            <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs">
-                              +{summary.keyHighlights.length - 3} more
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
               );

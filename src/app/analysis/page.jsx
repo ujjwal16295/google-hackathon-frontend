@@ -103,36 +103,103 @@ const { isSpeaking, speakingSection, speakText, stopSpeaking } = useVoiceControl
     };
     return styles[nodeType] || styles.process;
   };
-  useEffect(() => {
-    const savedResults = sessionStorage.getItem('analysisResults');
-    if (savedResults) {
-      try {
-        const parsed = JSON.parse(savedResults);
-        setAnalysisResults(parsed);
-        
-        // Check if this is loaded from saved data
-        if (parsed.isLoadedFromSave) {
-          setIsLoadedFromSave(true);
-        }
-        
-        // Load all chat sessions
-        const sessions = JSON.parse(sessionStorage.getItem('chatSessions') || '[]');
-        setChatSessions(sessions);
-        
-        // Load chat counter
-        const savedCounter = sessionStorage.getItem('chatCounter');
-        if (savedCounter) {
-          setChatCounter(parseInt(savedCounter));
-        }
-        
-      } catch (error) {
-        console.error('Error loading saved results:', error);
-        window.location.href = '/docupload';
-      }
-    } else {
-      window.location.href = '/docupload';
+// In your Analysis page component, replace the useEffect that loads analysisResults
+useEffect(() => {
+  const savedResults = sessionStorage.getItem('analysisResults');
+  
+  if (!savedResults) {
+    console.error('No analysis results found in session storage');
+    window.location.href = '/docupload';
+    return;
+  }
+  
+  try {
+    const parsed = JSON.parse(savedResults);
+    console.log('Loaded analysis from session:', parsed);
+    
+    // Critical validation
+    if (!parsed.analysis) {
+      throw new Error('Missing analysis object');
     }
-  }, []);
+    
+    // Ensure all required nested objects exist
+    parsed.analysis = {
+      summary: parsed.analysis.summary || {
+        documentType: 'Legal Document',
+        mainPurpose: 'Analysis',
+        keyHighlights: [],
+        whatIsIncluded: [],
+        contractSummary: '',
+        wordCount: 0,
+        estimatedReadingTime: '5 minutes'
+      },
+      riskAssessment: parsed.analysis.riskAssessment || {
+        overallRisk: 'Medium',
+        riskScore: 50,
+        greenPoints: 0,
+        yellowPoints: 0,
+        redPoints: 0,
+        risks: []
+      },
+      keyTerms: parsed.analysis.keyTerms || [],
+      vagueTerms: parsed.analysis.vagueTerms || [],
+      legalReferences: parsed.analysis.legalReferences || [],
+      recommendations: parsed.analysis.recommendations || [],
+      redFlags: parsed.analysis.redFlags || [],
+      suggestedQuestions: parsed.analysis.suggestedQuestions || [],
+      flowchartData: parsed.analysis.flowchartData || null,
+      metadata: parsed.analysis.metadata || {}
+    };
+    
+    // Ensure metadata exists
+    if (!parsed.metadata) {
+      parsed.metadata = {
+        source: 'unknown',
+        processedAt: new Date().toISOString(),
+        contentLength: 0,
+        model: 'gemini-2.5-flash',
+        parties: {}
+      };
+    }
+    
+    // Set the analysis results
+    setAnalysisResults(parsed);
+    
+    // Check if loaded from saved data
+    if (parsed.isLoadedFromSave) {
+      setIsLoadedFromSave(true);
+      console.log('Analysis loaded from saved data, serial:', parsed.savedSerial);
+    }
+    
+    // Load chat sessions
+    try {
+      const sessions = JSON.parse(sessionStorage.getItem('chatSessions') || '[]');
+      setChatSessions(Array.isArray(sessions) ? sessions : []);
+    } catch (e) {
+      console.warn('Failed to load chat sessions:', e);
+      setChatSessions([]);
+    }
+    
+    // Load chat counter
+    try {
+      const savedCounter = sessionStorage.getItem('chatCounter');
+      if (savedCounter) {
+        setChatCounter(parseInt(savedCounter, 10) || 1);
+      }
+    } catch (e) {
+      console.warn('Failed to load chat counter:', e);
+      setChatCounter(1);
+    }
+    
+    console.log('Analysis page loaded successfully');
+    
+  } catch (error) {
+    console.error('Error parsing analysis results:', error);
+    console.error('Raw data:', savedResults);
+    alert('Failed to load analysis data. The data may be corrupted.\n\nError: ' + error.message);
+    window.location.href = '/docupload';
+  }
+}, []);
   const startNewAnalysis = () => {
     // Stop any speaking
     window.speechSynthesis.cancel();

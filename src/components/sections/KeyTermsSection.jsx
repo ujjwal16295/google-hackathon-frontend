@@ -27,13 +27,6 @@ const KeyTermsSection = ({ analysis, isSpeaking, speakingSection, speakText, sto
                   <h3 className="text-lg font-semibold text-gray-900">{term.category}</h3>
                   <p className="text-blue-600 font-medium">{term.term}</p>
                 </div>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  term.importance === 'High' ? 'bg-red-100 text-red-700' :
-                  term.importance === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
-                  'bg-green-100 text-green-700'
-                }`}>
-                  {term.importance}
-                </span>
               </div>
               <p className="text-gray-700">{term.explanation}</p>
             </div>

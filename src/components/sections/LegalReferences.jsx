@@ -4,14 +4,7 @@ import VoiceButton from '../VoiceButton';
 import { getSectionText } from '../../utils/sectionTextExtractor';
 
 const LegalReferencesSection = ({ analysis, isSpeaking, speakingSection, speakText, stopSpeaking }) => {
-  const getRelevanceColor = (relevance) => {
-    switch (relevance?.toLowerCase()) {
-      case 'high': return 'bg-red-100 text-red-700';
-      case 'medium': return 'bg-yellow-100 text-yellow-700';
-      case 'low': return 'bg-green-100 text-green-700';
-      default: return 'bg-gray-100 text-gray-700';
-    }
-  };
+
 
   return (
     <div className="bg-white rounded-xl shadow-lg p-6">
@@ -39,9 +32,7 @@ const LegalReferencesSection = ({ analysis, isSpeaking, speakingSection, speakTe
                     <p className="text-sm text-gray-600 mt-1">{ref.context}</p>
                   </div>
                 </div>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getRelevanceColor(ref.relevance)}`}>
-                  {ref.relevance}
-                </span>
+
               </div>
               <div className="ml-8 mt-3 p-3 bg-blue-50 rounded-lg">
                 <p className="text-gray-700 text-sm">{ref.shortExplanation}</p>
