@@ -32,6 +32,8 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const AnalysisResultsPage = () => {
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [isLoadedFromSave, setIsLoadedFromSave] = useState(false);
+  const [streamingAnswer, setStreamingAnswer] = useState('');
+const [isStreaming, setIsStreaming] = useState(false);
 
 
   const [userEmail, setUserEmail] = useState(null);
@@ -328,12 +330,14 @@ useEffect(() => {
     }
     
     setIsLoadingQuestion(true);
+    setIsStreaming(true);
+    setStreamingAnswer('');
   
     try {
       // Send conversation history for follow-ups
       const conversationHistory = activeChat?.messages || [];
       
-      const response = await fetch('https://googel-hackathon-backend.onrender.com/api/ask-question', {
+      const response = await fetch('https://googel-hackathon-backend.onrender.com/api/ask-question-stream', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -347,28 +351,55 @@ useEffect(() => {
         }),
       });
   
-      const result = await response.json();
-      
-      if (result.success) {
-        const aiMessage = {
-          role: 'assistant',
-          content: result.answer,
-          timestamp: new Date().toLocaleTimeString()
-        };
-        
-        setActiveChat(prev => ({
-          ...prev,
-          messages: [...prev.messages, aiMessage]
-        }));
-        
-      } else {
-        alert('Failed to get answer: ' + result.error);
-        // Remove the user message if failed
-        setActiveChat(prev => ({
-          ...prev,
-          messages: prev.messages.slice(0, -1)
-        }));
+      if (!response.ok) {
+        throw new Error('Failed to get streaming response');
       }
+  
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedText = '';
+  
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+        
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.type === 'chunk') {
+                accumulatedText += data.text;
+                setStreamingAnswer(accumulatedText);
+              } else if (data.type === 'done') {
+                // Final message
+                const aiMessage = {
+                  role: 'assistant',
+                  content: data.fullText,
+                  timestamp: new Date().toLocaleTimeString()
+                };
+                
+                setActiveChat(prev => ({
+                  ...prev,
+                  messages: [...prev.messages, aiMessage]
+                }));
+                
+                setIsStreaming(false);
+                setStreamingAnswer('');
+              } else if (data.error) {
+                throw new Error(data.error);
+              }
+            } catch (e) {
+              console.warn('Error parsing SSE data:', e);
+            }
+          }
+        }
+      }
+      
     } catch (error) {
       console.error('Error asking question:', error);
       alert('Error processing question. Please try again.');
@@ -377,6 +408,8 @@ useEffect(() => {
         ...prev,
         messages: prev.messages.slice(0, -1)
       }));
+      setIsStreaming(false);
+      setStreamingAnswer('');
     } finally {
       setIsLoadingQuestion(false);
     }
@@ -627,6 +660,8 @@ useEffect(() => {
     popupQuestionInput={popupQuestionInput}
     setPopupQuestionInput={setPopupQuestionInput}
     isLoadingQuestion={isLoadingQuestion}
+    isStreaming={isStreaming}  // ADD THIS
+    streamingAnswer={streamingAnswer}  // ADD THIS
     onClose={() => {
       stopSpeaking();
       closeAndSaveChat();

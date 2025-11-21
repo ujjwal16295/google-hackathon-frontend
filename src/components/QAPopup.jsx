@@ -12,7 +12,9 @@ export const QAPopup = ({
     isSpeaking,
     speakingSection,
     speakText,
-    stopSpeaking
+    stopSpeaking,
+    isStreaming,  // ADD THIS
+    streamingAnswer,  // ADD THIS
   }) => {
     const inputRef = useRef(null);
     const messagesEndRef = useRef(null);
@@ -85,59 +87,74 @@ export const QAPopup = ({
           </div>
   
           <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-6 space-y-4">
-            {activeChat?.messages.map((message, index) => (
-              <div
-                key={`msg-${index}`}
-                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div className="flex flex-col max-w-[80%]">
-                  <div
-                    className={`rounded-lg p-4 ${
-                      message.role === 'user'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-900'
-                    }`}
-                  >
-                    <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                    <p
-                      className={`text-xs mt-2 ${
-                        message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
-                      }`}
-                    >
-                      {message.timestamp}
-                    </p>
-                  </div>
-                  
-                  {message.role === 'assistant' && VoiceButtonComponent && (
-                    <VoiceButtonComponent
-                      text={message.content}
-                      sectionName={`chat-message-${activeChat.id}-${index}`}
-                      onSpeak={speakText}
-                      onStop={stopSpeaking}
-                      isSpeaking={isSpeaking}
-                      speakingSection={speakingSection}
-                      size="small"
-                      className="self-start mt-2"
-                    />
-                  )}
-                </div>
-              </div>
-            ))}
-            
-            {isLoadingQuestion && (
-              <div className="flex justify-start">
-                <div className="bg-gray-100 rounded-lg p-4">
-                  <div className="flex items-center space-x-2">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
-                    <span className="text-gray-600">Analyzing your question...</span>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            <div ref={messagesEndRef} />
-          </div>
+  {activeChat?.messages.map((message, index) => (
+    <div
+      key={`msg-${index}`}
+      className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+    >
+      <div className="flex flex-col max-w-[80%]">
+        <div
+          className={`rounded-lg p-4 ${
+            message.role === 'user'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-100 text-gray-900'
+          }`}
+        >
+          <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+          <p
+            className={`text-xs mt-2 ${
+              message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
+            }`}
+          >
+            {message.timestamp}
+          </p>
+        </div>
+        
+        {message.role === 'assistant' && VoiceButtonComponent && (
+          <VoiceButtonComponent
+            text={message.content}
+            sectionName={`chat-message-${activeChat.id}-${index}`}
+            onSpeak={speakText}
+            onStop={stopSpeaking}
+            isSpeaking={isSpeaking}
+            speakingSection={speakingSection}
+            size="small"
+            className="self-start mt-2"
+          />
+        )}
+      </div>
+    </div>
+  ))}
   
+  {/* Show streaming message */}
+  {isStreaming && streamingAnswer && (
+    <div className="flex justify-start">
+      <div className="flex flex-col max-w-[80%]">
+        <div className="bg-gray-100 text-gray-900 rounded-lg p-4">
+          <p className="whitespace-pre-wrap leading-relaxed">{streamingAnswer}</p>
+          <div className="flex items-center mt-2">
+            <div className="animate-pulse w-2 h-2 bg-blue-600 rounded-full mr-1"></div>
+            <div className="animate-pulse w-2 h-2 bg-blue-600 rounded-full mr-1 delay-75"></div>
+            <div className="animate-pulse w-2 h-2 bg-blue-600 rounded-full delay-150"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )}
+  
+  {isLoadingQuestion && !isStreaming && (
+    <div className="flex justify-start">
+      <div className="bg-gray-100 rounded-lg p-4">
+        <div className="flex items-center space-x-2">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+          <span className="text-gray-600">Analyzing your question...</span>
+        </div>
+      </div>
+    </div>
+  )}
+  
+  <div ref={messagesEndRef} />
+</div>
           {!isViewOnly && (
             <div className="border-t border-gray-200 p-4">
               <div className="flex gap-3">

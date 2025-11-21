@@ -468,44 +468,7 @@ const clearAllPreviousData = async () => {
               </>
             )}
 
-            {/* Optional Party Information */}
-            <div className="mt-8 p-6 bg-gray-50 rounded-xl">
-              <div className="flex items-center mb-4">
-                <Users className="w-5 h-5 text-gray-600 mr-2" />
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Party Information (Optional)
-                </h3>
-              </div>
-              <p className="text-gray-600 mb-4 text-sm">
-                Help us personalize the analysis by specifying the parties involved
-              </p>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Party 1 (e.g., Your Company)
-                  </label>
-                  <input
-                    type="text"
-                    value={parties.party1}
-                    onChange={(e) => setParties({...parties, party1: e.target.value})}
-                    placeholder="Enter party name"
-                    className="w-full p-3 border border-gray-300 text-black rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Party 2 (e.g., Client/Vendor)
-                  </label>
-                  <input
-                    type="text"
-                    value={parties.party2}
-                    onChange={(e) => setParties({...parties, party2: e.target.value})}
-                    placeholder="Enter party name"
-                    className="w-full p-3 border border-gray-300 text-black rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-            </div>
+
 
             {/* Analysis Options */}
             <div className="mt-8 p-6 bg-blue-50 rounded-xl">
