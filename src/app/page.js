@@ -1,31 +1,105 @@
 "use client"
 import React, { useState, useEffect } from 'react';
-import { Upload, Shield, MessageCircle, GitBranch, CheckCircle, ArrowRight, FileText, Users, Zap } from 'lucide-react';
+import { Upload, Shield, MessageCircle, GitBranch, CheckCircle, ArrowRight, FileText, LogOut, User } from 'lucide-react';
 import { Footer } from '@/components/Footer';
+import { createClient } from '@supabase/supabase-js';
+
+// Supabase initialization
+const supabaseUrl = 'https://mnbluphajxxwlmzqmpnm.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const LegalAIHomepage = () => {
   const [isVisible, setIsVisible] = useState(false);
   const [currentFeature, setCurrentFeature] = useState(0);
+  const [user, setUser] = useState(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   useEffect(() => {
     setIsVisible(true);
     const interval = setInterval(() => {
       setCurrentFeature((prev) => (prev + 1) % 4);
     }, 3000);
-    return () => clearInterval(interval);
+    
+    // Check for existing session and handle OAuth callback
+    const checkUser = async () => {
+      console.log('Checking for user session...'); // Debug log
+      
+      // First, check if there's a hash fragment (OAuth callback)
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const accessToken = hashParams.get('access_token');
+      
+      if (accessToken) {
+        console.log('✅ OAuth callback detected, access token found'); // Debug log
+        // Clean the URL hash
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+      
+      // Get the current session
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      console.log('Session Data:', session); // Debug log
+      console.log('Session Error:', error); // Debug log
+      console.log('User Data:', session?.user); // Debug log
+      
+      if (session?.user) {
+        console.log('✅ User is logged in:', session.user.email); // Debug log
+        console.log('Auth provider:', session.user.app_metadata.provider); // Debug log
+        setUser(session.user);
+        
+        // Store session in localStorage for persistence
+        localStorage.setItem('supabase_session', JSON.stringify(session));
+      } else {
+        console.log('❌ No user logged in'); // Debug log
+        
+        // Check localStorage as fallback
+        const storedSession = localStorage.getItem('supabase_session');
+        if (storedSession) {
+          console.log('Found session in localStorage'); // Debug log
+          try {
+            const parsedSession = JSON.parse(storedSession);
+            setUser(parsedSession.user);
+          } catch (e) {
+            console.error('Error parsing stored session:', e);
+            localStorage.removeItem('supabase_session');
+          }
+        }
+      }
+    };
+    
+    checkUser();
+  
+    // Listen for auth changes (crucial for OAuth)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      console.log('🔄 Auth state changed:', _event); // Debug log
+      console.log('New session:', session); // Debug log
+      
+      if (session?.user) {
+        console.log('✅ User logged in via', _event, ':', session.user.email);
+        console.log('Provider:', session.user.app_metadata.provider);
+        setUser(session.user);
+        
+        // Store session
+        localStorage.setItem('supabase_session', JSON.stringify(session));
+      } else {
+        console.log('❌ User logged out');
+        setUser(null);
+        localStorage.removeItem('supabase_session');
+      }
+    });
+  
+    return () => {
+      clearInterval(interval);
+      subscription.unsubscribe();
+    };
   }, []);
 
-  // Smooth scroll function
-  const scrollToSection = (e, sectionId) => {
-    e.preventDefault();
-    const element = document.getElementById(sectionId);
-    if (element) {
-      element.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-        inline: 'nearest'
-      });
-    }
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    localStorage.removeItem('supabase_session');
+    setShowUserMenu(false);
+    window.location.reload();
   };
 
   const features = [
@@ -58,43 +132,100 @@ const LegalAIHomepage = () => {
     "Make informed decisions with confidence"
   ];
 
+  // Smooth scroll function
+  const scrollToSection = (e, sectionId) => {
+    e.preventDefault();
+    const element = document.getElementById(sectionId);
+    if (element) {
+      element.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+        inline: 'nearest'
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-      {/* Navigation */}
+      {/* Navigation - UPDATED WITH AUTH */}
       <nav className="relative z-50 bg-white/80 backdrop-blur-md border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center space-x-2">
-              <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
-                <Scale className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                LegalClear
-              </span>
-            </div>
-            <div className="hidden md:flex items-center space-x-8">
-              <a 
-                href="#features" 
-                onClick={(e) => scrollToSection(e, 'features')}
-                className="text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
-              >
-                Features
-              </a>
-              <a 
-                href="#how-it-works" 
-                onClick={(e) => scrollToSection(e, 'how-it-works')}
-                className="text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
-              >
-                How It Works
-              </a>
-              <a href='/docupload' className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-2 rounded-full hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5">
-                Get Started
-              </a>
-            </div>
-          </div>
+  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="flex justify-between items-center py-4">
+      <div className="flex items-center space-x-2">
+        <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+          <Scale className="w-6 h-6 text-white" />
         </div>
-      </nav>
-
+        <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+          LegalClear
+        </span>
+      </div>
+      <div className="hidden md:flex items-center space-x-8">
+        <a 
+          href="#features" 
+          onClick={(e) => scrollToSection(e, 'features')}
+          className="text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
+        >
+          Features
+        </a>
+        <a 
+          href="#how-it-works" 
+          onClick={(e) => scrollToSection(e, 'how-it-works')}
+          className="text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
+        >
+          How It Works
+        </a>
+        
+        {/* Auth Section - Shows Login or User Menu */}
+        {user ? (
+          <div className="relative">
+            <button
+              onClick={() => {
+                console.log('User menu toggled, current user:', user); // Debug log
+                setShowUserMenu(!showUserMenu);
+              }}
+              className="flex items-center space-x-2 px-4 py-2 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:shadow-lg transition-all duration-300"
+            >
+              <User className="w-4 h-4" />
+              <span className="text-sm font-medium">{user.email}</span>
+            </button>
+            
+            {showUserMenu && (
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-100 py-2 z-50">
+                <div className="px-4 py-2 border-b border-gray-100">
+                  <p className="text-xs text-gray-500">Signed in as</p>
+                  <p className="text-sm font-medium text-gray-900 truncate">{user.email}</p>
+                </div>
+                <a 
+                  href="/dashboard" 
+                  className="block px-4 py-2 text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Dashboard
+                </a>
+                <button
+                  onClick={handleSignOut}
+                  className="w-full text-left px-4 py-2 text-red-600 hover:bg-red-50 transition-colors flex items-center"
+                >
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Sign Out
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            {console.log('No user, showing login button')}
+            <a 
+              href='/login' 
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-2 rounded-full hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5"
+            >
+              Login
+            </a>
+          </>
+        )}
+      </div>
+    </div>
+  </div>
+</nav>
       {/* Hero Section */}
       <section className="relative overflow-hidden py-20 px-4">
         <div className="max-w-7xl mx-auto">

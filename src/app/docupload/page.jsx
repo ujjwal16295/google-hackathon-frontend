@@ -1,6 +1,11 @@
 "use client"
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef,useEffect } from 'react';
 import { Upload, FileText, X, CheckCircle, AlertCircle, Eye, Users, ArrowRight, Shield, Clock, Loader2 } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = 'https://mnbluphajxxwlmzqmpnm.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const DocumentUploadPage = () => {
   const [uploadedFile, setUploadedFile] = useState(null);
@@ -13,7 +18,30 @@ const DocumentUploadPage = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisMessage, setAnalysisMessage] = useState('');
+  const [userEmail, setUserEmail] = useState(null);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setUserEmail(session.user.email);
+      } else {
+        // Fallback to localStorage
+        const storedSession = localStorage.getItem('supabase_session');
+        if (storedSession) {
+          try {
+            const parsedSession = JSON.parse(storedSession);
+            setUserEmail(parsedSession.user.email);
+          } catch (e) {
+            console.error('Error parsing stored session:', e);
+          }
+        }
+      }
+    };
+    
+    checkUser();
+  }, []);
 
   // Clear all previous session data and IndexedDB
 const clearAllPreviousData = async () => {
@@ -128,6 +156,11 @@ const clearAllPreviousData = async () => {
   };
 
   const handleSubmit = async () => {
+    if (!userEmail) {
+      alert('Please log in to analyze documents.');
+      window.location.href = '/login';
+      return;
+    }
     if (!uploadedFile && !textInput.trim()) {
       alert('Please upload a document or paste contract text.');
       return;
@@ -161,6 +194,8 @@ const clearAllPreviousData = async () => {
       
       // Add parties information
       formData.append('parties', JSON.stringify(parties));
+      formData.append('email', userEmail);
+
   
       const response = await fetch('https://googel-hackathon-backend.onrender.com/api/analyze-document', {
         method: 'POST',
