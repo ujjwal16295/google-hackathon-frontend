@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, CheckCircle, AlertTriangle } from 'lucide-react';
+import { AlertCircle, CheckCircle, AlertTriangle, FileQuestion } from 'lucide-react';
 import VoiceButton from '../VoiceButton';
 import { getSectionText } from '../../utils/sectionTextExtractor';
 
@@ -14,6 +14,7 @@ const RiskAssessmentSection = ({
   const greenRisks = riskAssessment.greenRisks || [];
   const yellowRisks = riskAssessment.yellowRisks || [];
   const redRisks = riskAssessment.redRisks || [];
+  const vagueTerms = analysis.vagueTerms || [];
 
   return (
     <div className="bg-white rounded-xl shadow-lg p-6">
@@ -153,8 +154,52 @@ const RiskAssessmentSection = ({
         </div>
       )}
 
+      {/* Vague Terms Section - NEW */}
+      {vagueTerms.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
+            <FileQuestion className="w-6 h-6 text-purple-600 mr-2" />
+            Vague or Unclear Terms ({vagueTerms.length})
+          </h3>
+          <div className="space-y-4">
+            {vagueTerms.map((vagueTerm, index) => (
+              <div key={index} className="p-6 rounded-lg border border-purple-200 bg-purple-50">
+                <div className="flex items-start justify-between mb-3">
+                  <h4 className="text-lg font-semibold text-purple-900">{vagueTerm.term}</h4>
+                  <div className="flex items-center px-3 py-1 rounded-full bg-purple-100">
+                    <FileQuestion className="w-4 h-4 text-purple-600 mr-1" />
+                    <span className="text-sm font-medium text-purple-700">Needs Clarification</span>
+                  </div>
+                </div>
+                
+                {vagueTerm.context && (
+                  <div className="mb-3">
+                    <p className="text-sm font-semibold text-gray-700 mb-1">Context:</p>
+                    <p className="text-gray-600 italic">"{vagueTerm.context}"</p>
+                  </div>
+                )}
+                
+                {vagueTerm.issue && (
+                  <div className="mb-3">
+                    <p className="text-sm font-semibold text-gray-700 mb-1">Issue:</p>
+                    <p className="text-gray-700">{vagueTerm.issue}</p>
+                  </div>
+                )}
+                
+                {vagueTerm.suggestion && (
+                  <div className="bg-white/70 p-3 rounded border-l-4 border-purple-500">
+                    <p className="text-sm font-semibold text-gray-700 mb-1">Suggestion:</p>
+                    <p className="text-sm text-gray-700">{vagueTerm.suggestion}</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* No Risks Found */}
-      {greenRisks.length === 0 && yellowRisks.length === 0 && redRisks.length === 0 && (
+      {greenRisks.length === 0 && yellowRisks.length === 0 && redRisks.length === 0 && vagueTerms.length === 0 && (
         <div className="text-center py-8">
           <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <p className="text-lg text-gray-600">No risk assessment data available.</p>
