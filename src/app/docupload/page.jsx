@@ -294,7 +294,7 @@ const clearAllPreviousData = async () => {
           
           <div className="text-sm text-gray-500 flex items-center justify-center">
             <Clock className="w-4 h-4 mr-2" />
-            This usually takes 30-60 seconds
+            This usually takes 60-120 seconds
           </div>
         </div>
       </div>
@@ -339,7 +339,7 @@ const clearAllPreviousData = async () => {
           <Shield className="w-6 h-6 text-green-600 mr-3" />
           <div>
             <p className="text-green-800 font-semibold">Secure & Confidential</p>
-            <p className="text-green-700 text-sm">Your documents are encrypted and never shared. Analysis happens in real-time.</p>
+            <p className="text-green-700 text-sm">Your documents are  never shared. Analysis happens in real-time.</p>
           </div>
         </div>
 
@@ -527,7 +527,7 @@ const clearAllPreviousData = async () => {
                 <ArrowRight className="w-5 h-5 ml-2" />
               </button>
               <p className="text-gray-500 text-sm mt-3">
-                Analysis typically takes 30-60 seconds
+                Analysis typically takes 60-120 seconds
               </p>
             </div>
           </div>
@@ -541,7 +541,7 @@ const clearAllPreviousData = async () => {
           </div>
           <div className="bg-white p-6 rounded-xl shadow-md">
             <h3 className="font-semibold text-gray-900 mb-2">Processing Time</h3>
-            <p className="text-gray-600 text-sm">Most documents analyzed within 60 seconds</p>
+            <p className="text-gray-600 text-sm">Most documents analyzed within 120 seconds</p>
           </div>
           {/* <div className="bg-white p-6 rounded-xl shadow-md">
             <h3 className="font-semibold text-gray-900 mb-2">Need Help?</h3>
