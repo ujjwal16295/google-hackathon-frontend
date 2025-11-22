@@ -141,7 +141,9 @@ useEffect(() => {
         greenPoints: 0,
         yellowPoints: 0,
         redPoints: 0,
-        risks: []
+        greenRisks: [],  // ADD THIS
+        yellowRisks: [], // ADD THIS
+        redRisks: []     // ADD THIS
       },
       keyTerms: parsed.analysis.keyTerms || [],
       vagueTerms: parsed.analysis.vagueTerms || [],
@@ -609,12 +611,13 @@ useEffect(() => {
   <RiskScoreCard riskScore={analysis.riskAssessment?.riskScore} />
   
   <DocumentStatsCard stats={{
-    wordCount: analysis.summary?.wordCount,
-    risksCount: analysis.riskAssessment?.risks?.length,
-    vagueTermsCount: analysis.vagueTerms?.length,
-    keyTermsCount: analysis.keyTerms?.length,
-    suggestedQuestionsCount: analysis.suggestedQuestions?.length
-  }} />
+  wordCount: analysis.summary?.wordCount,
+  greenRisksCount: analysis.riskAssessment?.greenRisks?.length || 0,  // ADD
+  yellowRisksCount: analysis.riskAssessment?.yellowRisks?.length || 0, // ADD
+  redRisksCount: analysis.riskAssessment?.redRisks?.length || 0,       // ADD
+  keyTermsCount: analysis.keyTerms?.length || 0,
+  suggestedQuestionsCount: analysis.suggestedQuestions?.length || 0
+}} />
   
   <QuickQuestionsCard
     questions={analysis.suggestedQuestions}

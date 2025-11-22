@@ -38,7 +38,7 @@ export const exportToDocx = async (analysis, metadata) => {
                 bold: true
               }),
               new TextRun({
-                text: ` | Risk Score: ${analysis.riskAssessment?.riskScore || 5}/10`,
+                text: ` | Risk Score: ${analysis.riskAssessment?.riskScore || 50}/100`,
                 bold: true
               })
             ],
@@ -82,22 +82,47 @@ export const exportToDocx = async (analysis, metadata) => {
             )
           ] : []),
 
-          // Risk Assessment Details
-          ...(analysis.riskAssessment?.risks?.length > 0 ? [
+          // Favorable Terms (Green Risks)
+          ...(analysis.riskAssessment?.greenRisks?.length > 0 ? [
             new Paragraph({
-              text: "Identified Risks",
+              text: "✓ Favorable Terms",
               heading: HeadingLevel.HEADING_2,
               spacing: { before: 400, after: 200 }
             }),
-            ...analysis.riskAssessment.risks.flatMap(risk => [
+            ...analysis.riskAssessment.greenRisks.flatMap(risk => [
               new Paragraph({
                 children: [
-                  new TextRun({ text: `${risk.type} `, bold: true, size: 24 }),
-                  new TextRun({ 
-                    text: `[${risk.severity} Risk]`, 
-                    bold: true,
-                    color: risk.severity === 'High' ? 'DC2626' : risk.severity === 'Medium' ? 'D97706' : '059669'
-                  })
+                  new TextRun({ text: `${risk.type}`, bold: true, size: 24, color: '059669' })
+                ],
+                spacing: { before: 200, after: 100 }
+              }),
+              new Paragraph({
+                text: risk.description,
+                spacing: { after: 100 }
+              }),
+              ...(risk.location ? [
+                new Paragraph({
+                  children: [
+                    new TextRun({ text: "Location: ", bold: true }),
+                    new TextRun(risk.location)
+                  ],
+                  spacing: { after: 200 }
+                })
+              ] : [new Paragraph({ text: "", spacing: { after: 200 } })])
+            ])
+          ] : []),
+
+          // Medium Risk Items (Yellow Risks)
+          ...(analysis.riskAssessment?.yellowRisks?.length > 0 ? [
+            new Paragraph({
+              text: "⚠ Medium Risk Items",
+              heading: HeadingLevel.HEADING_2,
+              spacing: { before: 400, after: 200 }
+            }),
+            ...analysis.riskAssessment.yellowRisks.flatMap(risk => [
+              new Paragraph({
+                children: [
+                  new TextRun({ text: `${risk.type}`, bold: true, size: 24, color: 'D97706' })
                 ],
                 spacing: { before: 200, after: 100 }
               }),
@@ -114,13 +139,54 @@ export const exportToDocx = async (analysis, metadata) => {
                   spacing: { after: 100 }
                 })
               ] : []),
+              ...(risk.recommendation ? [
+                new Paragraph({
+                  children: [
+                    new TextRun({ text: "Recommendation: ", bold: true }),
+                    new TextRun(risk.recommendation)
+                  ],
+                  spacing: { after: 200 }
+                })
+              ] : [new Paragraph({ text: "", spacing: { after: 200 } })])
+            ])
+          ] : []),
+
+          // Critical Issues (Red Risks)
+          ...(analysis.riskAssessment?.redRisks?.length > 0 ? [
+            new Paragraph({
+              text: "🚨 Critical Issues",
+              heading: HeadingLevel.HEADING_2,
+              spacing: { before: 400, after: 200 }
+            }),
+            ...analysis.riskAssessment.redRisks.flatMap(risk => [
               new Paragraph({
                 children: [
-                  new TextRun({ text: "Recommendation: ", bold: true }),
-                  new TextRun(risk.recommendation)
+                  new TextRun({ text: `${risk.type}`, bold: true, size: 24, color: 'DC2626' })
                 ],
-                spacing: { after: 200 }
-              })
+                spacing: { before: 200, after: 100 }
+              }),
+              new Paragraph({
+                text: risk.description,
+                spacing: { after: 100 }
+              }),
+              ...(risk.location ? [
+                new Paragraph({
+                  children: [
+                    new TextRun({ text: "Location: ", bold: true }),
+                    new TextRun(risk.location)
+                  ],
+                  spacing: { after: 100 }
+                })
+              ] : []),
+              ...(risk.recommendation ? [
+                new Paragraph({
+                  children: [
+                    new TextRun({ text: "Urgent Action: ", bold: true }),
+                    new TextRun(risk.recommendation)
+                  ],
+                  spacing: { after: 200 }
+                })
+              ] : [new Paragraph({ text: "", spacing: { after: 200 } })])
             ])
           ] : []),
 
