@@ -12,11 +12,11 @@ const VoiceButton = ({
 }) => {
   const isThisSectionSpeaking = isSpeaking && speakingSection === sectionName;
   
-  const handleClick = () => {
+  const handleClick = async () => {  // ← Changed to async
     if (isThisSectionSpeaking) {
-      onStop();
+      await onStop();  // ← Added await
     } else {
-      onSpeak(text, sectionName);
+      await onSpeak(text, sectionName);  // ← Added await
     }
   };
 

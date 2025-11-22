@@ -110,7 +110,7 @@ export const QAPopup = ({
           </p>
         </div>
         
-        {message.role === 'assistant' && VoiceButtonComponent && (
+        {/* {message.role === 'assistant' && VoiceButtonComponent && (
           <VoiceButtonComponent
             text={message.content}
             sectionName={`chat-message-${activeChat.id}-${index}`}
@@ -121,7 +121,7 @@ export const QAPopup = ({
             size="small"
             className="self-start mt-2"
           />
-        )}
+        )} */}
       </div>
     </div>
   ))}
