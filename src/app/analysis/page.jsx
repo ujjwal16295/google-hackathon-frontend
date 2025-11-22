@@ -252,14 +252,26 @@ useEffect(() => {
     setIsSaving(true);
     
     try {
-      // Determine the serial number to use
       let serialToUse;
+      
       if (isLoadedFromSave && analysisResults.savedSerial) {
-        // This is an update to existing saved data
+        // Update existing document - use the same serial
         serialToUse = analysisResults.savedSerial;
+        console.log('Updating existing document at serial:', serialToUse);
       } else {
-        // This is a new save
-        serialToUse = analysisResults?.userInfo?.nextSerial || 1;
+        // New document - fetch latest serial from backend
+        const userDataResponse = await fetch(`https://googel-hackathon-backend.onrender.com/api/get-user-data/${userEmail}`);
+        const userData = await userDataResponse.json();
+        
+        if (userData.success && userData.data.length > 0) {
+          // Get the highest serial number and add 1
+          const maxSerial = Math.max(...userData.data.map(item => item.serial));
+          serialToUse = maxSerial + 1;
+        } else {
+          // First document for this user
+          serialToUse = 1;
+        }
+        console.log('Creating new document at serial:', serialToUse);
       }
       
       // Prepare complete data including Q&A sessions

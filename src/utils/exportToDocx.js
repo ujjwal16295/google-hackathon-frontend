@@ -190,6 +190,41 @@ export const exportToDocx = async (analysis, metadata) => {
             ])
           ] : []),
 
+          // Legal References
+          ...(analysis.legalReferences?.length > 0 ? [
+            new Paragraph({
+              text: "Legal References",
+              heading: HeadingLevel.HEADING_2,
+              spacing: { before: 400, after: 200 }
+            }),
+            ...analysis.legalReferences.flatMap(ref => [
+              new Paragraph({
+                children: [
+                  new TextRun({ text: `${ref.reference}`, bold: true, size: 24 }),
+                  new TextRun({ 
+                    text: ` [${ref.relevance} Relevance]`,
+                    color: ref.relevance === 'High' ? 'DC2626' : ref.relevance === 'Medium' ? 'D97706' : '059669'
+                  })
+                ],
+                spacing: { before: 200, after: 100 }
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({ text: "Context: ", bold: true }),
+                  new TextRun(ref.context)
+                ],
+                spacing: { after: 100 }
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({ text: "Explanation: ", bold: true }),
+                  new TextRun(ref.shortExplanation)
+                ],
+                spacing: { after: 200 }
+              })
+            ])
+          ] : []),
+
           // Red Flags
           ...(analysis.redFlags?.length > 0 ? [
             new Paragraph({
