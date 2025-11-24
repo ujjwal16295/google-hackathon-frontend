@@ -23,10 +23,10 @@ export const PageHeader = ({
               <FileText className="w-4 h-4 mr-1" />
               {metadata.source === 'file' ? metadata.originalFilename : 'Pasted Text'}
             </span>
-            <span className="flex items-center">
+            {/* <span className="flex items-center">
               <Clock className="w-4 h-4 mr-1" />
               {analysis.summary?.estimatedReadingTime || '5 minutes'} read
-            </span>
+            </span> */}
             <span className="flex items-center">
               <Shield className="w-4 h-4 mr-1" />
               {metadata.contentLength?.toLocaleString()} characters
