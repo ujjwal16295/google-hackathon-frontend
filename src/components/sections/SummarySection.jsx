@@ -28,7 +28,7 @@ const SummarySection = ({ analysis, isSpeaking, speakingSection, speakText, stop
         <div className="p-4 bg-green-50 rounded-lg">
           <p className="text-sm font-medium text-gray-500 mb-1">Main Purpose</p>
           <p className="text-xl font-semibold text-gray-900">
-            {analysis.summary?.mainPurpose || 'Contract Agreement'}
+            {analysis.summary?.contractSummary || 'Contract Agreement'}
           </p>
         </div>
       </div>
