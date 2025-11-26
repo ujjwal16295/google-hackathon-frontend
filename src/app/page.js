@@ -1,7 +1,6 @@
 "use client"
 import React, { useState, useEffect } from 'react';
 import { Upload, Shield, MessageCircle, GitBranch, CheckCircle, ArrowRight, FileText, LogOut, User } from 'lucide-react';
-import { Footer } from '@/components/Footer';
 import { createClient } from '@supabase/supabase-js';
 
 // Supabase initialization
@@ -14,6 +13,7 @@ const LegalAIHomepage = () => {
   const [currentFeature, setCurrentFeature] = useState(0);
   const [user, setUser] = useState(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     setIsVisible(true);
@@ -21,68 +21,81 @@ const LegalAIHomepage = () => {
       setCurrentFeature((prev) => (prev + 1) % 4);
     }, 3000);
     
-    // Check for existing session and handle OAuth callback
-    const checkUser = async () => {
-      console.log('Checking for user session...'); // Debug log
-      
-      // First, check if there's a hash fragment (OAuth callback)
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
-      const accessToken = hashParams.get('access_token');
-      
-      if (accessToken) {
-        console.log('✅ OAuth callback detected, access token found'); // Debug log
-        // Clean the URL hash
-        window.history.replaceState(null, '', window.location.pathname);
-      }
-      
-      // Get the current session
-      const { data: { session }, error } = await supabase.auth.getSession();
-      
-      console.log('Session Data:', session); // Debug log
-      console.log('Session Error:', error); // Debug log
-      console.log('User Data:', session?.user); // Debug log
-      
-      if (session?.user) {
-        console.log('✅ User is logged in:', session.user.email); // Debug log
-        console.log('Auth provider:', session.user.app_metadata.provider); // Debug log
-        setUser(session.user);
+    // FIXED: Proper session handling for OAuth
+    const initializeAuth = async () => {
+      try {
+        console.log('🔍 Initializing auth...');
         
-        // Store session in localStorage for persistence
-        localStorage.setItem('supabase_session', JSON.stringify(session));
-      } else {
-        console.log('❌ No user logged in'); // Debug log
+        // Check if we're handling an OAuth callback
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const hasOAuthParams = hashParams.has('access_token') || hashParams.has('error');
         
-        // Check localStorage as fallback
-        const storedSession = localStorage.getItem('supabase_session');
-        if (storedSession) {
-          console.log('Found session in localStorage'); // Debug log
-          try {
-            const parsedSession = JSON.parse(storedSession);
-            setUser(parsedSession.user);
-          } catch (e) {
-            console.error('Error parsing stored session:', e);
-            localStorage.removeItem('supabase_session');
+        if (hasOAuthParams) {
+          console.log('📥 OAuth callback detected, waiting for session...');
+          // Don't clean URL yet - let Supabase process it first
+          
+          // Wait a bit for Supabase to process the callback
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        // Now get the session
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('❌ Session error:', error);
+          setIsLoading(false);
+          return;
+        }
+        
+        if (session?.user) {
+          console.log('✅ User authenticated:', session.user.email);
+          console.log('📌 Provider:', session.user.app_metadata?.provider);
+          setUser(session.user);
+          
+          // Store in localStorage
+          localStorage.setItem('supabase_session', JSON.stringify(session));
+          
+          // NOW clean the URL
+          if (hasOAuthParams) {
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        } else {
+          console.log('ℹ️ No active session');
+          
+          // Check localStorage as fallback
+          const storedSession = localStorage.getItem('supabase_session');
+          if (storedSession) {
+            try {
+              const parsed = JSON.parse(storedSession);
+              if (parsed.user) {
+                console.log('📦 Restored session from localStorage');
+                setUser(parsed.user);
+              }
+            } catch (e) {
+              console.error('Error parsing stored session:', e);
+              localStorage.removeItem('supabase_session');
+            }
           }
         }
+      } catch (error) {
+        console.error('❌ Auth initialization error:', error);
+      } finally {
+        setIsLoading(false);
       }
     };
     
-    checkUser();
+    initializeAuth();
   
-    // Listen for auth changes (crucial for OAuth)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      console.log('🔄 Auth state changed:', _event); // Debug log
-      console.log('New session:', session); // Debug log
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔄 Auth state changed:', event);
       
       if (session?.user) {
-        console.log('✅ User logged in via', _event, ':', session.user.email);
-        console.log('Provider:', session.user.app_metadata.provider);
+        console.log('✅ User logged in:', session.user.email);
         setUser(session.user);
-        
-        // Store session
         localStorage.setItem('supabase_session', JSON.stringify(session));
-      } else {
-        console.log('❌ User logged out');
+      } else if (event === 'SIGNED_OUT') {
+        console.log('👋 User signed out');
         setUser(null);
         localStorage.removeItem('supabase_session');
       }
@@ -94,12 +107,15 @@ const LegalAIHomepage = () => {
     };
   }, []);
 
-
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    localStorage.removeItem('supabase_session');
-    setShowUserMenu(false);
-    window.location.reload();
+    try {
+      await supabase.auth.signOut();
+      localStorage.removeItem('supabase_session');
+      setShowUserMenu(false);
+      setUser(null);
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
   };
 
   const features = [
@@ -132,7 +148,6 @@ const LegalAIHomepage = () => {
     "Make informed decisions with confidence"
   ];
 
-  // Smooth scroll function
   const scrollToSection = (e, sectionId) => {
     e.preventDefault();
     const element = document.getElementById(sectionId);
@@ -145,15 +160,25 @@ const LegalAIHomepage = () => {
     }
   };
 
+  // Show loading state while checking auth
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="flex flex-col items-center">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-      {/* Navigation - UPDATED WITH AUTH */}
+      {/* Navigation */}
       <nav className="relative z-50 bg-white/80 backdrop-blur-md border-b border-gray-200">
-  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    <div className="flex justify-between items-center py-4">
-      <div className="flex items-center space-x-2">
-
-        <div className="flex items-center space-x-2">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center space-x-2">
               <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-sm">LC</span>
               </div>
@@ -161,74 +186,67 @@ const LegalAIHomepage = () => {
                 LegalClear
               </span>
             </div>
-      </div>
-      <div className="hidden md:flex items-center space-x-8">
-        <a 
-          href="#features" 
-          onClick={(e) => scrollToSection(e, 'features')}
-          className="text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
-        >
-          Features
-        </a>
-        <a 
-          href="#how-it-works" 
-          onClick={(e) => scrollToSection(e, 'how-it-works')}
-          className="text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
-        >
-          How It Works
-        </a>
-        
-        {/* Auth Section - Shows Login or User Menu */}
-        {user ? (
-          <div className="relative">
-            <button
-              onClick={() => {
-                console.log('User menu toggled, current user:', user); // Debug log
-                setShowUserMenu(!showUserMenu);
-              }}
-              className="flex items-center space-x-2 px-4 py-2 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:shadow-lg transition-all duration-300"
-            >
-              <User className="w-4 h-4" />
-              <span className="text-sm font-medium">{user.email}</span>
-            </button>
-            
-            {showUserMenu && (
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-100 py-2 z-50">
-                <div className="px-4 py-2 border-b border-gray-100">
-                  <p className="text-xs text-gray-500">Signed in as</p>
-                  <p className="text-sm font-medium text-gray-900 truncate">{user.email}</p>
+            <div className="hidden md:flex items-center space-x-8">
+              <a 
+                href="#features" 
+                onClick={(e) => scrollToSection(e, 'features')}
+                className="text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
+              >
+                Features
+              </a>
+              <a 
+                href="#how-it-works" 
+                onClick={(e) => scrollToSection(e, 'how-it-works')}
+                className="text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
+              >
+                How It Works
+              </a>
+              
+              {user ? (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowUserMenu(!showUserMenu)}
+                    className="flex items-center space-x-2 px-4 py-2 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:shadow-lg transition-all duration-300"
+                  >
+                    <User className="w-4 h-4" />
+                    <span className="text-sm font-medium">{user.email}</span>
+                  </button>
+                  
+                  {showUserMenu && (
+                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-100 py-2 z-50">
+                      <div className="px-4 py-2 border-b border-gray-100">
+                        <p className="text-xs text-gray-500">Signed in as</p>
+                        <p className="text-sm font-medium text-gray-900 truncate">{user.email}</p>
+                      </div>
+                      <a 
+                        href="/dashboard" 
+                        className="block px-4 py-2 text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        Dashboard
+                      </a>
+                      <button
+                        onClick={handleSignOut}
+                        className="w-full text-left px-4 py-2 text-red-600 hover:bg-red-50 transition-colors flex items-center"
+                      >
+                        <LogOut className="w-4 h-4 mr-2" />
+                        Sign Out
+                      </button>
+                    </div>
+                  )}
                 </div>
+              ) : (
                 <a 
-                  href="/dashboard" 
-                  className="block px-4 py-2 text-gray-700 hover:bg-gray-50 transition-colors"
+                  href='/login' 
+                  className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-2 rounded-full hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5"
                 >
-                  Dashboard
+                  Login
                 </a>
-                <button
-                  onClick={handleSignOut}
-                  className="w-full text-left px-4 py-2 text-red-600 hover:bg-red-50 transition-colors flex items-center"
-                >
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Sign Out
-                </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        ) : (
-          <>
-            {console.log('No user, showing login button')}
-            <a 
-              href='/login' 
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-2 rounded-full hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5"
-            >
-              Login
-            </a>
-          </>
-        )}
-      </div>
-    </div>
-  </div>
-</nav>
+        </div>
+      </nav>
+
       {/* Hero Section */}
       <section className="relative overflow-hidden py-20 px-4">
         <div className="max-w-7xl mx-auto">
@@ -383,7 +401,7 @@ const LegalAIHomepage = () => {
             Ready to Understand Your Contracts?
           </h2>
           <p className="text-xl text-gray-600 mb-8">
-          Join LegalClear for fast accurate contract analysis.
+            Join LegalClear for fast accurate contract analysis.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <a href='/docupload' className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-8 py-4 rounded-full text-lg font-semibold hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 flex items-center justify-center">
@@ -393,18 +411,8 @@ const LegalAIHomepage = () => {
           </div>
         </div>
       </section>
-
-      {/* Footer */}
-      <Footer/>
     </div>
   );
 };
-
-// Simple Scale icon component since it's not in lucide-react
-const Scale = ({ className }) => (
-  <svg className={className} fill="currentColor" viewBox="0 0 24 24">
-    <path d="M12 2l3.09 6.26L22 9l-5 4.87L18.18 21L12 17.77L5.82 21L7 13.87L2 9l6.91-.74L12 2z"/>
-  </svg>
-);
 
 export default LegalAIHomepage;
